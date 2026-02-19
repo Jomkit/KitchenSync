@@ -71,7 +71,7 @@ frontend-dev:
 	cd frontend && npm run dev
 
 test:
-	cd backend && pytest -q
+	cd backend && pytest -qv
 
 clean:
 	find backend -type d -name '__pycache__' -prune -exec rm -rf {} +
