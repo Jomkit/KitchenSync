@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app import socketio
 from app.auth import require_role
@@ -210,6 +210,166 @@ def create_reservation() -> tuple[dict[str, Any], int]:
             }
         ),
         201,
+    )
+
+
+@reservations_bp.patch("/reservations/<int:reservation_id>")
+@require_role("online")
+def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
+    payload = request.get_json(silent=True) or {}
+    normalized_items, validation_error = _normalize_reservation_items(payload.get("items"))
+    if validation_error is not None:
+        body, status_code = validation_error
+        return jsonify(body), status_code
+
+    now = _utc_now()
+    expires_at = now + timedelta(minutes=RESERVATION_TTL_MINUTES)
+    menu_item_ids = [item["menu_item_id"] for item in normalized_items]
+    requested_qty_by_menu_item = {
+        item["menu_item_id"]: item["qty"] for item in normalized_items
+    }
+
+    state_changed = False
+
+    with SessionLocal() as session:
+        with session.begin():
+            reservation = session.execute(
+                select(Reservation)
+                .where(Reservation.id == reservation_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+            if reservation is None:
+                return jsonify({"error": "Reservation not found"}), 404
+
+            if reservation.status != "active":
+                return jsonify({"error": f"Reservation is {reservation.status}"}), 409
+
+            if reservation.expires_at <= now:
+                reservation.status = "expired"
+                state_changed = True
+                return jsonify({"error": "Reservation expired"}), 409
+
+            menu_items = session.execute(
+                select(MenuItem).where(MenuItem.id.in_(menu_item_ids))
+            ).scalars().all()
+            found_menu_item_ids = {menu_item.id for menu_item in menu_items}
+            missing_menu_item_ids = sorted(set(menu_item_ids) - found_menu_item_ids)
+            if missing_menu_item_ids:
+                return (
+                    jsonify({"error": f"Unknown menu_item_id values: {missing_menu_item_ids}"}),
+                    400,
+                )
+
+            recipes = session.execute(
+                select(Recipe).where(Recipe.menu_item_id.in_(menu_item_ids))
+            ).scalars().all()
+
+            required_qty_by_ingredient: dict[int, int] = defaultdict(int)
+            for recipe in recipes:
+                required_qty_by_ingredient[recipe.ingredient_id] += (
+                    recipe.qty_required * requested_qty_by_menu_item[recipe.menu_item_id]
+                )
+
+            existing_reserved_rows = session.execute(
+                select(ReservationIngredient).where(
+                    ReservationIngredient.reservation_id == reservation_id
+                )
+            ).scalars().all()
+            existing_ingredient_ids = {
+                reserved_row.ingredient_id for reserved_row in existing_reserved_rows
+            }
+            ingredient_ids = sorted(
+                existing_ingredient_ids.union(required_qty_by_ingredient.keys())
+            )
+            ingredients = session.execute(
+                select(Ingredient)
+                .where(Ingredient.id.in_(ingredient_ids))
+                .order_by(Ingredient.id.asc())
+                .with_for_update()
+            ).scalars().all()
+            ingredients_by_id = {ingredient.id: ingredient for ingredient in ingredients}
+
+            active_reserved_rows = session.execute(
+                select(
+                    ReservationIngredient.ingredient_id,
+                    func.coalesce(func.sum(ReservationIngredient.qty_reserved), 0),
+                )
+                .join(Reservation, Reservation.id == ReservationIngredient.reservation_id)
+                .where(
+                    ReservationIngredient.ingredient_id.in_(ingredient_ids),
+                    Reservation.status == "active",
+                    Reservation.expires_at > now,
+                    Reservation.id != reservation_id,
+                )
+                .group_by(ReservationIngredient.ingredient_id)
+            ).all()
+            active_reserved_qty_by_ingredient = {
+                ingredient_id: int(total_qty)
+                for ingredient_id, total_qty in active_reserved_rows
+            }
+
+            insufficient_errors: list[dict[str, Any]] = []
+            for ingredient_id, required_qty in sorted(required_qty_by_ingredient.items()):
+                ingredient = ingredients_by_id[ingredient_id]
+                active_reserved_qty = active_reserved_qty_by_ingredient.get(ingredient_id, 0)
+                available_qty = 0 if ingredient.is_out else ingredient.on_hand_qty - active_reserved_qty
+                if available_qty < required_qty:
+                    insufficient_errors.append(
+                        _build_insufficient_error(
+                            ingredient=ingredient,
+                            required_qty=required_qty,
+                            available_qty=available_qty,
+                        )
+                    )
+
+            if insufficient_errors:
+                return (
+                    jsonify({"code": "INSUFFICIENT_INGREDIENTS", "errors": insufficient_errors}),
+                    409,
+                )
+
+            session.execute(
+                delete(ReservationItem).where(ReservationItem.reservation_id == reservation_id)
+            )
+            session.execute(
+                delete(ReservationIngredient).where(
+                    ReservationIngredient.reservation_id == reservation_id
+                )
+            )
+
+            for item in normalized_items:
+                session.add(
+                    ReservationItem(
+                        reservation_id=reservation_id,
+                        menu_item_id=item["menu_item_id"],
+                        qty=item["qty"],
+                        notes=item["notes"],
+                    )
+                )
+
+            for ingredient_id, qty_reserved in sorted(required_qty_by_ingredient.items()):
+                session.add(
+                    ReservationIngredient(
+                        reservation_id=reservation_id,
+                        ingredient_id=ingredient_id,
+                        qty_reserved=qty_reserved,
+                    )
+                )
+
+            reservation.expires_at = expires_at
+            state_changed = True
+
+    if state_changed:
+        socketio.emit("stateChanged")
+    return (
+        jsonify(
+            {
+                "id": reservation_id,
+                "status": "active",
+                "expires_at": expires_at.isoformat(),
+            }
+        ),
+        200,
     )
 
 

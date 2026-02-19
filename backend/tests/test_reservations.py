@@ -123,6 +123,133 @@ def test_reservation_failure_returns_409_structured_errors(app_client) -> None:
     assert "Test Out Lettuce" in error["message"]
 
 
+def test_update_reservation_success_replaces_items_and_ingredients(app_client) -> None:
+    with SessionLocal() as session:
+        bun = Ingredient(name="Update Bun", on_hand_qty=10, low_stock_threshold_qty=2, is_out=False)
+        patty = Ingredient(name="Update Patty", on_hand_qty=10, low_stock_threshold_qty=2, is_out=False)
+        cheese = Ingredient(name="Update Cheese", on_hand_qty=10, low_stock_threshold_qty=2, is_out=False)
+        basic = MenuItem(name="Update Basic Burger", price_cents=1000)
+        deluxe = MenuItem(name="Update Deluxe Burger", price_cents=1300)
+        session.add_all([bun, patty, cheese, basic, deluxe])
+        session.flush()
+        session.add_all(
+            [
+                Recipe(menu_item_id=basic.id, ingredient_id=bun.id, qty_required=1),
+                Recipe(menu_item_id=basic.id, ingredient_id=patty.id, qty_required=1),
+                Recipe(menu_item_id=deluxe.id, ingredient_id=bun.id, qty_required=1),
+                Recipe(menu_item_id=deluxe.id, ingredient_id=cheese.id, qty_required=2),
+            ]
+        )
+        session.commit()
+        basic_id = basic.id
+        deluxe_id = deluxe.id
+
+    token = _login_online(app_client)
+    create_response = app_client.post(
+        "/reservations",
+        json={"items": [{"menu_item_id": basic_id, "qty": 2}]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create_response.status_code == 201
+    create_body = create_response.get_json()
+    reservation_id = create_body["id"]
+    original_expires_at = datetime.fromisoformat(create_body["expires_at"])
+
+    update_response = app_client.patch(
+        f"/reservations/{reservation_id}",
+        json={"items": [{"menu_item_id": deluxe_id, "qty": 1, "notes": "Extra crispy"}]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 200
+    update_body = update_response.get_json()
+    updated_expires_at = datetime.fromisoformat(update_body["expires_at"])
+    assert update_body["id"] == reservation_id
+    assert update_body["status"] == "active"
+    assert updated_expires_at > original_expires_at
+
+    with SessionLocal() as session:
+        reservation = session.get(Reservation, reservation_id)
+        assert reservation is not None
+        assert reservation.status == "active"
+        assert reservation.expires_at > datetime.now(timezone.utc)
+
+        reservation_items = session.execute(
+            select(ReservationItem).where(ReservationItem.reservation_id == reservation_id)
+        ).scalars().all()
+        assert len(reservation_items) == 1
+        assert reservation_items[0].menu_item_id == deluxe_id
+        assert reservation_items[0].qty == 1
+        assert reservation_items[0].notes == "Extra crispy"
+
+        reservation_ingredients = session.execute(
+            select(ReservationIngredient).where(ReservationIngredient.reservation_id == reservation_id)
+        ).scalars().all()
+        reserved_by_name = {
+            session.get(Ingredient, row.ingredient_id).name: row.qty_reserved for row in reservation_ingredients
+        }
+        assert reserved_by_name == {"Update Bun": 1, "Update Cheese": 2}
+
+
+def test_update_reservation_conflict_409_when_insufficient(app_client) -> None:
+    with SessionLocal() as session:
+        bun = Ingredient(name="Update Ok Bun", on_hand_qty=10, low_stock_threshold_qty=2, is_out=False)
+        lettuce = Ingredient(
+            name="Update Out Lettuce",
+            on_hand_qty=10,
+            low_stock_threshold_qty=2,
+            is_out=True,
+        )
+        starter = MenuItem(name="Update Starter Burger", price_cents=900)
+        blocked = MenuItem(name="Update Blocked Wrap", price_cents=950)
+        session.add_all([bun, lettuce, starter, blocked])
+        session.flush()
+        session.add_all(
+            [
+                Recipe(menu_item_id=starter.id, ingredient_id=bun.id, qty_required=1),
+                Recipe(menu_item_id=blocked.id, ingredient_id=lettuce.id, qty_required=1),
+            ]
+        )
+        session.commit()
+        starter_id = starter.id
+        blocked_id = blocked.id
+        lettuce_id = lettuce.id
+
+    token = _login_online(app_client)
+    create_response = app_client.post(
+        "/reservations",
+        json={"items": [{"menu_item_id": starter_id, "qty": 1}]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create_response.status_code == 201
+    reservation_id = create_response.get_json()["id"]
+
+    update_response = app_client.patch(
+        f"/reservations/{reservation_id}",
+        json={"items": [{"menu_item_id": blocked_id, "qty": 1}]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 409
+    body = update_response.get_json()
+    assert body["code"] == "INSUFFICIENT_INGREDIENTS"
+    assert isinstance(body["errors"], list)
+    assert len(body["errors"]) == 1
+    error = body["errors"][0]
+    assert error["ingredient_id"] == lettuce_id
+    assert error["ingredient_name"] == "Update Out Lettuce"
+    assert error["required_qty"] == 1
+    assert error["available_qty"] == 0
+    assert error["is_out"] is True
+    assert "Update Out Lettuce" in error["message"]
+
+    with SessionLocal() as session:
+        reservation_items = session.execute(
+            select(ReservationItem).where(ReservationItem.reservation_id == reservation_id)
+        ).scalars().all()
+        assert len(reservation_items) == 1
+        assert reservation_items[0].menu_item_id == starter_id
+        assert reservation_items[0].qty == 1
+
+
 def test_concurrent_reservations_only_one_succeeds(app_client, monkeypatch) -> None:
     with SessionLocal() as session:
         patty = Ingredient(
