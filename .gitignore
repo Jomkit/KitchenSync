@@ -5,3 +5,7 @@ node_modules/
 dist/
 
 venv/
+# Ignore .env files in root, backend, and frontend
+.env
+backend/.env
+frontend/.env
