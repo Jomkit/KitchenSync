@@ -29,6 +29,38 @@ KitchenSync is a small monorepo with two workspaces:
 
 Keep backend and frontend concerns isolated; shared contracts should be documented in `docs/` before cross-stack changes.
 
+## Environment Configuration Flow (Non-Negotiable)
+
+For backend environment variables, always use this flow:
+- `backend/.env` (and document defaults/examples in `backend/.env.example`)
+- `backend/config.py` (centralized load, parsing, validation, and settings object)
+- The consuming file imports from `config.py` (for example, `from config import settings`)
+
+Rules:
+- Do not read environment variables directly in feature/runtime files (no direct `os.getenv` outside `backend/config.py`).
+- Any new backend environment variable must be added to `backend/.env.example` and surfaced through `Settings` in `backend/config.py`.
+- Type conversion and validation must happen in `backend/config.py`, not scattered across modules.
+
+## Change Discipline (Non-Negotiable)
+
+All changes must be surgical, minimal, and intentional.
+
+Scope control rules:
+- Touch only files required for the requested behavior.
+- Avoid opportunistic refactors, renames, moves, or formatting-only edits unless explicitly requested.
+- Keep public API shapes and contracts stable unless the task requires a contract change.
+- If a contract/env/command changes, update docs in the same change (`README.md`, `AGENTS.md`, `.env.example` as applicable).
+
+Tech debt prevention rules:
+- Do not add dead code, placeholder abstractions, or speculative helpers.
+- Do not leave TODO/FIXME comments without immediate implementation in the same task.
+- Prefer explicit local logic over broad framework-like patterns.
+- New dependencies require clear necessity; default to no new dependencies.
+
+Validation rules:
+- Run the smallest meaningful verification for the edited area.
+- If tests/checks are not run, state that explicitly with reason and risk.
+
 ## Core Domain Rules (Highest Priority)
 
 Reservation correctness is the most important requirement.
@@ -82,7 +114,8 @@ Database schema is created using SQLAlchemy `create_all()` and seeded with `seed
 - Prefer explicit logic over abstraction.
 - Avoid creating reusable frameworks or generic service layers.
 - Avoid premature optimization.
-- Avoid adding helper utilities unless directly needed.
+- Avoid broad cleanup unrelated to the task.
+- Remove temporary debug code before finishing.
 
 ## Testing Guidelines
 
