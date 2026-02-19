@@ -21,4 +21,8 @@ def create_app() -> Flask:
     register_blueprints(app)
     app.register_blueprint(auth_bp)
     socketio.init_app(app, async_mode="eventlet")
+
+    from app.reservation_expiration import start_reservation_expiration_job
+
+    start_reservation_expiration_job()
     return app

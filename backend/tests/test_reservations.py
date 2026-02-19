@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from queue import Queue
 from threading import Barrier, Thread
 
@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app import create_app
 from app.models import Ingredient, MenuItem, Recipe, Reservation, ReservationIngredient, ReservationItem
+from app.reservation_expiration import expire_reservations_once_and_emit
 from db import SessionLocal
 
 
@@ -224,3 +225,54 @@ def test_commit_is_idempotent_and_decrements_once(app_client) -> None:
 
     assert before_commit - after_first_commit == 2
     assert after_second_commit == after_first_commit
+
+
+def test_expiration_iteration_expires_and_restores_availability(app_client) -> None:
+    with SessionLocal() as session:
+        patty = Ingredient(
+            name="Test Expire Patty",
+            on_hand_qty=1,
+            low_stock_threshold_qty=0,
+            is_out=False,
+        )
+        item = MenuItem(name="Test Expire Burger", price_cents=1100)
+        session.add_all([patty, item])
+        session.flush()
+        session.add(Recipe(menu_item_id=item.id, ingredient_id=patty.id, qty_required=1))
+        session.commit()
+        menu_item_id = item.id
+
+    token = _login_online(app_client)
+    create_response = app_client.post(
+        "/reservations",
+        json={"items": [{"menu_item_id": menu_item_id, "qty": 1}]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create_response.status_code == 201
+    reservation_id = create_response.get_json()["id"]
+
+    before_expiration = app_client.get("/ingredients")
+    assert before_expiration.status_code == 200
+    before_patty = next(row for row in before_expiration.get_json() if row["name"] == "Test Expire Patty")
+    assert before_patty["active_reserved_qty"] == 1
+    assert before_patty["available_qty"] == 0
+
+    with SessionLocal() as session:
+        reservation = session.get(Reservation, reservation_id)
+        assert reservation is not None
+        reservation.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        session.commit()
+
+    expired_count = expire_reservations_once_and_emit()
+    assert expired_count == 1
+
+    with SessionLocal() as session:
+        reservation = session.get(Reservation, reservation_id)
+        assert reservation is not None
+        assert reservation.status == "expired"
+
+    after_expiration = app_client.get("/ingredients")
+    assert after_expiration.status_code == 200
+    after_patty = next(row for row in after_expiration.get_json() if row["name"] == "Test Expire Patty")
+    assert after_patty["active_reserved_qty"] == 0
+    assert after_patty["available_qty"] == 1
