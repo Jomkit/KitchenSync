@@ -1,109 +1,102 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { io, type Socket } from "socket.io-client";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
-type MenuItem = Record<string, unknown>;
-type Ingredient = Record<string, unknown>;
+import { clearAuth, getCurrentRole, type UserRole } from "./auth/token";
+import { LandingPage } from "./pages/LandingPage";
+import { KitchenPage } from "./pages/KitchenPage";
+import { FohPage } from "./pages/FohPage";
+import { OnlinePage } from "./pages/OnlinePage";
 
-const API_BASE_URL = "http://localhost:5000";
+function ProtectedRoute({ children, allow }: { children: JSX.Element; allow: UserRole[] }) {
+  const role = getCurrentRole();
+  const location = useLocation();
 
-function App() {
-  const [menu, setMenu] = useState<MenuItem[]>([]);
-  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState("disconnected");
-  const [lastPongAt, setLastPongAt] = useState<string>("not received");
-  const [errorMessage, setErrorMessage] = useState<string>("");
+  if (!role || !allow.includes(role)) {
+    return <Navigate to="/" replace state={{ from: location }} />;
+  }
 
-  const socket = useMemo<Socket>(() => io(API_BASE_URL), []);
+  return children;
+}
 
-  const fetchMenu = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/menu`);
-    if (!response.ok) {
-      throw new Error(`Failed to load menu (${response.status})`);
-    }
+function LandingRoute() {
+  const role = getCurrentRole();
+  if (role === "kitchen") {
+    return <Navigate to="/kitchen" replace />;
+  }
+  if (role === "foh") {
+    return <Navigate to="/foh" replace />;
+  }
+  if (role === "online") {
+    return <Navigate to="/online" replace />;
+  }
 
-    const data = (await response.json()) as MenuItem[];
-    setMenu(data);
-  }, []);
+  return <LandingPage />;
+}
 
-  const fetchIngredients = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/ingredients`);
-    if (!response.ok) {
-      throw new Error(`Failed to load ingredients (${response.status})`);
-    }
-
-    const data = (await response.json()) as Ingredient[];
-    setIngredients(data);
-  }, []);
-
-  const refreshData = useCallback(async () => {
-    try {
-      setErrorMessage("");
-      await Promise.all([fetchMenu(), fetchIngredients()]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to refresh data";
-      setErrorMessage(message);
-    }
-  }, [fetchIngredients, fetchMenu]);
-
-  useEffect(() => {
-    socket.on("connect", () => {
-      setConnectionStatus("connected");
-      socket.emit("ping", { source: "frontend" });
-    });
-
-    socket.on("disconnect", () => {
-      setConnectionStatus("disconnected");
-    });
-
-    socket.on("pong", () => {
-      setLastPongAt(new Date().toLocaleTimeString());
-    });
-
-    socket.on("stateChanged", () => {
-      void refreshData();
-    });
-
-    void refreshData();
-
-    return () => {
-      socket.removeAllListeners();
-      socket.disconnect();
-    };
-  }, [refreshData, socket]);
+function Shell({ children }: { children: JSX.Element }) {
+  const role = getCurrentRole();
+  const navigate = useNavigate();
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
-      <div className="mx-auto max-w-5xl space-y-4">
-        <h1 className="text-2xl font-bold">KitchenSync Dashboard</h1>
-
-        <section className="rounded-lg bg-white p-4 shadow-sm">
-          <p>
-            Socket status: <span className="font-semibold">{connectionStatus}</span>
-          </p>
-          <p>
-            Last pong: <span className="font-semibold">{lastPongAt}</span>
-          </p>
-          {errorMessage ? <p className="mt-2 text-red-600">{errorMessage}</p> : null}
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-2">
-          <article className="rounded-lg bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-lg font-semibold">Menu</h2>
-            <pre className="overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100">
-              {JSON.stringify(menu, null, 2)}
-            </pre>
-          </article>
-
-          <article className="rounded-lg bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-lg font-semibold">Ingredients</h2>
-            <pre className="overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100">
-              {JSON.stringify(ingredients, null, 2)}
-            </pre>
-          </article>
-        </section>
+    <main className="min-h-screen bg-slate-100 p-4 text-slate-900">
+      <div className="mx-auto max-w-6xl space-y-4">
+        <nav className="flex items-center gap-2 rounded bg-white p-3 shadow">
+          {role === "kitchen" ? <span className="text-sm">Kitchen</span> : null}
+          {role === "foh" ? <span className="text-sm">FOH</span> : null}
+          {role === "online" ? <span className="text-sm">Online</span> : null}
+          {role ? (
+            <button
+              className="ml-auto rounded bg-slate-200 px-3 py-1 text-sm"
+              onClick={() => {
+                clearAuth();
+                navigate("/");
+              }}
+            >
+              Logout
+            </button>
+          ) : null}
+        </nav>
+        {children}
       </div>
     </main>
   );
 }
 
-export default App;
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<LandingRoute />} />
+      <Route
+        path="/kitchen"
+        element={
+          <ProtectedRoute allow={["kitchen", "foh"]}>
+            <Shell>
+              <KitchenPage role={getCurrentRole() as UserRole} />
+            </Shell>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/foh"
+        element={
+          <ProtectedRoute allow={["kitchen", "foh"]}>
+            <Shell>
+              <FohPage />
+            </Shell>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/online"
+        element={
+          <ProtectedRoute allow={["online"]}>
+            <Shell>
+              <OnlinePage />
+            </Shell>
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  );
+}
+
+export default AppRoutes;
