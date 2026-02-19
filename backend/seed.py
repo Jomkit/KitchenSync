@@ -1,7 +1,22 @@
+from urllib.parse import urlsplit, urlunsplit
+
 from sqlalchemy import select
 
 from app.models import Ingredient, MenuItem, Recipe, User
+from config import settings
 from db import SessionLocal, create_all
+
+
+def _redacted_database_url(database_url: str) -> str:
+    parsed = urlsplit(database_url)
+    if parsed.username is None:
+        return database_url
+
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    username = parsed.username
+    redacted_netloc = f"{username}:***@{host}{port}"
+    return urlunsplit((parsed.scheme, redacted_netloc, parsed.path, parsed.query, parsed.fragment))
 
 
 def _get_or_create_user(email: str, display_name: str) -> User:
@@ -78,6 +93,11 @@ def _get_or_create_recipe(menu_item_id: int, ingredient_id: int, qty_required: i
 
 
 def seed() -> None:
+    print(
+        "Seeding database",
+        f"env={settings.app_env}",
+        f"url={_redacted_database_url(settings.database_url)}",
+    )
     create_all()
 
     _get_or_create_user("alex@kitchensync.local", "Alex")
