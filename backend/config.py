@@ -129,6 +129,9 @@ class Settings:
     port: int
     flask_debug: bool
     database_url: str
+    jwt_secret_key: str
+    jwt_algorithm: str
+    jwt_access_token_ttl_minutes: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -139,6 +142,9 @@ class Settings:
             port=_env_int("PORT", 5000),
             flask_debug=_env_bool("FLASK_DEBUG", False),
             database_url=_resolve_database_url(app_env),
+            jwt_secret_key=os.getenv("JWT_SECRET_KEY", "dev-change-me"),
+            jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+            jwt_access_token_ttl_minutes=_env_int("JWT_ACCESS_TOKEN_TTL_MINUTES", 60),
         )
 
 
