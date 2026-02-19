@@ -1,6 +1,6 @@
-import os
 import logging
 
+from config import settings
 from app import create_app, socketio
 
 app = create_app()
@@ -8,9 +8,9 @@ logger = logging.getLogger("kitchensync.run")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 if __name__ == "__main__":
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "5000"))
-    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    host = settings.host
+    port = settings.port
+    debug = settings.flask_debug
 
     logger.info(
         "Starting SocketIO server host=%s port=%s debug=%s async_mode=%s",
