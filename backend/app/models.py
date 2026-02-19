@@ -15,7 +15,9 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    display_name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    password: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -29,7 +31,7 @@ class Ingredient(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     on_hand_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    low_stock_threshold_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    low_stock_threshold_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     is_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     recipes: Mapped[list[Recipe]] = relationship(back_populates="ingredient")
@@ -44,6 +46,8 @@ class MenuItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    allergens: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     recipes: Mapped[list[Recipe]] = relationship(back_populates="menu_item")
     reservation_items: Mapped[list[ReservationItem]] = relationship(back_populates="menu_item")
@@ -67,7 +71,7 @@ class Reservation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    state: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -107,7 +111,8 @@ class ReservationItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     reservation_id: Mapped[int] = mapped_column(ForeignKey("reservations.id"), nullable=False)
     menu_item_id: Mapped[int] = mapped_column(ForeignKey("menu_items.id"), nullable=False)
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
 
     reservation: Mapped[Reservation] = relationship(back_populates="items")
     menu_item: Mapped[MenuItem] = relationship(back_populates="reservation_items")

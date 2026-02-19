@@ -2,9 +2,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import select
 
-from app.models import Ingredient, MenuItem, Recipe, User
+from app.models import Base, Ingredient, MenuItem, Recipe, User
 from config import settings
-from db import SessionLocal, create_all
+from db import SessionLocal, create_all, engine
 
 
 def _redacted_database_url(database_url: str) -> str:
@@ -19,13 +19,23 @@ def _redacted_database_url(database_url: str) -> str:
     return urlunsplit((parsed.scheme, redacted_netloc, parsed.path, parsed.query, parsed.fragment))
 
 
-def _get_or_create_user(email: str, display_name: str) -> User:
+def _get_or_create_user(
+    email: str,
+    password: str,
+    role: str,
+    display_name: str | None = None,
+) -> User:
     with SessionLocal() as session:
         existing = session.execute(select(User).where(User.email == email)).scalar_one_or_none()
         if existing:
+            existing.password = password
+            existing.role = role
+            existing.display_name = display_name
+            session.commit()
+            session.refresh(existing)
             return existing
 
-        user = User(email=email, display_name=display_name)
+        user = User(email=email, password=password, role=role, display_name=display_name)
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -43,6 +53,11 @@ def _get_or_create_ingredient(
             select(Ingredient).where(Ingredient.name == name)
         ).scalar_one_or_none()
         if existing:
+            existing.on_hand_qty = on_hand_qty
+            existing.low_stock_threshold_qty = low_stock_threshold_qty
+            existing.is_out = is_out
+            session.commit()
+            session.refresh(existing)
             return existing
 
         ingredient = Ingredient(
@@ -57,13 +72,28 @@ def _get_or_create_ingredient(
         return ingredient
 
 
-def _get_or_create_menu_item(name: str, price_cents: int) -> MenuItem:
+def _get_or_create_menu_item(
+    name: str,
+    price_cents: int,
+    category: str | None = None,
+    allergens: str | None = None,
+) -> MenuItem:
     with SessionLocal() as session:
         existing = session.execute(select(MenuItem).where(MenuItem.name == name)).scalar_one_or_none()
         if existing:
+            existing.price_cents = price_cents
+            existing.category = category
+            existing.allergens = allergens
+            session.commit()
+            session.refresh(existing)
             return existing
 
-        item = MenuItem(name=name, price_cents=price_cents)
+        item = MenuItem(
+            name=name,
+            price_cents=price_cents,
+            category=category,
+            allergens=allergens,
+        )
         session.add(item)
         session.commit()
         session.refresh(item)
@@ -79,6 +109,9 @@ def _get_or_create_recipe(menu_item_id: int, ingredient_id: int, qty_required: i
             )
         ).scalar_one_or_none()
         if existing:
+            existing.qty_required = qty_required
+            session.commit()
+            session.refresh(existing)
             return existing
 
         recipe = Recipe(
@@ -98,11 +131,27 @@ def seed() -> None:
         f"env={settings.app_env}",
         f"url={_redacted_database_url(settings.database_url)}",
     )
+    Base.metadata.drop_all(bind=engine)
     create_all()
 
-    _get_or_create_user("alex@kitchensync.local", "Alex")
-    _get_or_create_user("blair@kitchensync.local", "Blair")
-    _get_or_create_user("casey@kitchensync.local", "Casey")
+    _get_or_create_user(
+        "kitchen@example.com",
+        password="pass",
+        role="kitchen",
+        display_name="Kitchen",
+    )
+    _get_or_create_user(
+        "foh@example.com",
+        password="pass",
+        role="foh",
+        display_name="Front Of House",
+    )
+    _get_or_create_user(
+        "online@example.com",
+        password="pass",
+        role="online",
+        display_name="Online",
+    )
 
     bun = _get_or_create_ingredient("Bun", on_hand_qty=40, low_stock_threshold_qty=8)
     patty = _get_or_create_ingredient("Patty", on_hand_qty=30, low_stock_threshold_qty=6)
@@ -110,9 +159,24 @@ def seed() -> None:
     tomato = _get_or_create_ingredient("Tomato", on_hand_qty=20, low_stock_threshold_qty=5)
     cheese = _get_or_create_ingredient("Cheese", on_hand_qty=25, low_stock_threshold_qty=5)
 
-    classic_burger = _get_or_create_menu_item("Classic Burger", price_cents=1299)
-    cheeseburger = _get_or_create_menu_item("Cheeseburger", price_cents=1399)
-    veggie_burger = _get_or_create_menu_item("Veggie Burger", price_cents=1199)
+    classic_burger = _get_or_create_menu_item(
+        "Classic Burger",
+        price_cents=1299,
+        category="Burgers",
+        allergens="gluten",
+    )
+    cheeseburger = _get_or_create_menu_item(
+        "Cheeseburger",
+        price_cents=1399,
+        category="Burgers",
+        allergens="gluten,dairy",
+    )
+    veggie_burger = _get_or_create_menu_item(
+        "Veggie Burger",
+        price_cents=1199,
+        category="Burgers",
+        allergens="gluten",
+    )
 
     _get_or_create_recipe(classic_burger.id, bun.id, qty_required=1)
     _get_or_create_recipe(classic_burger.id, patty.id, qty_required=1)
