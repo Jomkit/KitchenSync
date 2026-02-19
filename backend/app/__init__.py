@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from sqlalchemy import select
@@ -49,7 +49,52 @@ def create_app() -> Flask:
         return jsonify(menu_payload), 200
 
     from app import events  # noqa: F401
-    from app.auth import auth_bp
+    from app.auth import auth_bp, require_role
+
+    @app.patch("/ingredients/<int:ingredient_id>")
+    @require_role("kitchen")
+    def update_ingredient(ingredient_id: int) -> tuple[dict[str, int | str | bool], int]:
+        payload = request.get_json(silent=True) or {}
+        updates: dict[str, int | bool] = {}
+
+        if "on_hand_qty" in payload:
+            on_hand_qty = payload.get("on_hand_qty")
+            if not isinstance(on_hand_qty, int) or isinstance(on_hand_qty, bool):
+                return jsonify({"error": "on_hand_qty must be an integer"}), 400
+            if on_hand_qty < 0:
+                return jsonify({"error": "on_hand_qty must be non-negative"}), 400
+            updates["on_hand_qty"] = on_hand_qty
+
+        if "is_out" in payload:
+            is_out = payload.get("is_out")
+            if not isinstance(is_out, bool):
+                return jsonify({"error": "is_out must be a boolean"}), 400
+            updates["is_out"] = is_out
+
+        if not updates:
+            return jsonify({"error": "Provide on_hand_qty and/or is_out"}), 400
+
+        with SessionLocal() as session:
+            ingredient = session.get(Ingredient, ingredient_id)
+            if ingredient is None:
+                return jsonify({"error": "Ingredient not found"}), 404
+
+            if "on_hand_qty" in updates:
+                ingredient.on_hand_qty = updates["on_hand_qty"]
+            if "is_out" in updates:
+                ingredient.is_out = updates["is_out"]
+            session.commit()
+
+            response_body = {
+                "id": ingredient.id,
+                "name": ingredient.name,
+                "on_hand_qty": ingredient.on_hand_qty,
+                "low_stock_threshold_qty": ingredient.low_stock_threshold_qty,
+                "is_out": ingredient.is_out,
+            }
+
+        socketio.emit("stateChanged")
+        return jsonify(response_body), 200
 
     app.register_blueprint(auth_bp)
     socketio.init_app(app, async_mode="eventlet")
