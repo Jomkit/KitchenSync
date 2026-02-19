@@ -12,7 +12,7 @@ type MenuItem = {
   ingredients?: string[];
 };
 
-export function FohPage() {
+export function MenuPage() {
   const [menu, setMenu] = useState<MenuItem[]>([]);
 
   const load = useCallback(async () => {
@@ -29,17 +29,17 @@ export function FohPage() {
 
   return (
     <section>
-      <h1 className="mb-3 text-xl font-bold">Front of house</h1>
+      <h1 className="mb-3 text-xl font-bold">Menu</h1>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {menu.map((item) => (
-          <div key={item.id} className="rounded border bg-white p-3" title={item.reason || ""}>
+          <article key={item.id} className="rounded border bg-white p-3" title={item.reason || ""}>
             <p className="font-semibold">{item.name}</p>
             <p className="mt-1 text-xs text-slate-500">
               Ingredients: {item.ingredients?.length ? item.ingredients.join(", ") : "N/A"}
             </p>
             {!item.available ? <p className="text-sm text-red-600">Unavailable</p> : null}
             {item.low_stock ? <p className="mt-2 inline-block rounded bg-yellow-200 px-2 py-1 text-xs">LOW STOCK</p> : null}
-          </div>
+          </article>
         ))}
       </div>
     </section>

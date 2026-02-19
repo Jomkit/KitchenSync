@@ -10,6 +10,7 @@ type Ingredient = {
   on_hand_qty: number;
   active_reserved_qty: number;
   available_qty: number;
+  low_stock_threshold_qty: number;
   low_stock: boolean;
   is_out: boolean;
 };
@@ -60,6 +61,17 @@ export function KitchenPage({ role }: { role: UserRole | null }) {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
 
+  const setAvailableQty = (item: Ingredient, nextAvailableQty: number) => {
+    const clampedAvailableQty = Math.max(0, nextAvailableQty);
+    const nextOnHandQty = clampedAvailableQty + item.active_reserved_qty;
+    updateLocal(item.id, {
+      available_qty: clampedAvailableQty,
+      on_hand_qty: nextOnHandQty,
+      low_stock: clampedAvailableQty <= item.low_stock_threshold_qty,
+    });
+    void save(item.id, { on_hand_qty: nextOnHandQty });
+  };
+
   return (
     <section className="space-y-2">
       <h1 className="text-xl font-bold">Kitchen</h1>
@@ -82,22 +94,21 @@ export function KitchenPage({ role }: { role: UserRole | null }) {
             </label>
           </div>
           <div className="mt-2 flex items-center gap-2 text-sm">
+            <span className="text-slate-600">Available Qty</span>
             <button
               type="button"
               className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold text-slate-700 enabled:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
               aria-label={`Decrease ${item.name}`}
               disabled={role !== "kitchen" || item.is_out}
               onClick={() => {
-                const value = Math.max(0, item.on_hand_qty - 1);
-                updateLocal(item.id, { on_hand_qty: value });
-                void save(item.id, { on_hand_qty: value });
+                setAvailableQty(item, item.available_qty - 1);
               }}
             >
               -
             </button>
             <input
               className="w-20 rounded border px-2"
-              value={item.on_hand_qty}
+              value={item.available_qty}
               disabled={item.is_out || role !== "kitchen"}
               onFocus={() => setIsEditing(true)}
               onBlur={() => {
@@ -109,7 +120,7 @@ export function KitchenPage({ role }: { role: UserRole | null }) {
               }}
               onChange={(event) => {
                 const value = Number(event.target.value) || 0;
-                updateLocal(item.id, { on_hand_qty: value });
+                setAvailableQty(item, value);
               }}
             />
             <button
@@ -118,9 +129,7 @@ export function KitchenPage({ role }: { role: UserRole | null }) {
               aria-label={`Increase ${item.name}`}
               disabled={role !== "kitchen" || item.is_out}
               onClick={() => {
-                const value = item.on_hand_qty + 1;
-                updateLocal(item.id, { on_hand_qty: value });
-                void save(item.id, { on_hand_qty: value });
+                setAvailableQty(item, item.available_qty + 1);
               }}
             >
               +

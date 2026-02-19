@@ -9,7 +9,7 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy import delete, func, select
 
 from app import socketio
-from app.auth import require_role
+from app.auth import require_any_role
 from app.models import Ingredient, MenuItem, Recipe, Reservation, ReservationIngredient, ReservationItem
 from db import SessionLocal
 
@@ -82,7 +82,7 @@ def _normalize_reservation_items(payload_items: object) -> tuple[list[dict[str, 
 
 
 @reservations_bp.post("/reservations")
-@require_role("online")
+@require_any_role("online", "foh")
 def create_reservation() -> tuple[dict[str, Any], int]:
     payload = request.get_json(silent=True) or {}
     normalized_items, validation_error = _normalize_reservation_items(payload.get("items"))
@@ -233,7 +233,7 @@ def create_reservation() -> tuple[dict[str, Any], int]:
 
 
 @reservations_bp.patch("/reservations/<int:reservation_id>")
-@require_role("online")
+@require_any_role("online", "foh")
 def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
     payload = request.get_json(silent=True) or {}
     normalized_items, validation_error = _normalize_reservation_items(payload.get("items"))
@@ -416,7 +416,7 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
 
 
 @reservations_bp.post("/reservations/<int:reservation_id>/commit")
-@require_role("online")
+@require_any_role("online", "foh")
 def commit_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
     state_changed = False
     response_status_code = 200
@@ -497,7 +497,7 @@ def commit_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
 
 
 @reservations_bp.post("/reservations/<int:reservation_id>/release")
-@require_role("online")
+@require_any_role("online", "foh")
 def release_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
     state_changed = False
     response_body: dict[str, Any]

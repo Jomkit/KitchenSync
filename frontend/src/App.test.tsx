@@ -56,7 +56,7 @@ describe("Phase 10 routing and online behavior", () => {
   it("redirects from landing by role", async () => {
     const roles: Array<["kitchen" | "foh" | "online", string]> = [
       ["kitchen", "Kitchen"],
-      ["foh", "Front of house"],
+      ["foh", "FOH ordering"],
       ["online", "Online ordering"],
     ];
 
@@ -80,7 +80,9 @@ describe("Phase 10 routing and online behavior", () => {
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/menu")) {
-        return Promise.resolve(new Response(JSON.stringify([{ id: 1, name: "Pizza", available: true }]), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify([{ id: 1, name: "Pizza", available: true, max_qty_available: 10 }]), { status: 200 })
+        );
       }
       if (url.includes("/reservations/123") && init?.method === "PATCH") {
         return Promise.resolve(new Response(JSON.stringify({ id: 123, status: "active" }), { status: 200 }));
@@ -117,7 +119,10 @@ describe("Phase 10 routing and online behavior", () => {
       const url = String(input);
       if (url.includes("/menu")) {
         return Promise.resolve(
-          new Response(JSON.stringify([{ id: 1, name: "Caprese", available: false, reason: "Insufficient Tomatoes" }]), { status: 200 })
+          new Response(
+            JSON.stringify([{ id: 1, name: "Caprese", available: true, max_qty_available: 10, reason: "Insufficient Tomatoes" }]),
+            { status: 200 }
+          )
         );
       }
       if (url.includes("/reservations/123") && init?.method === "PATCH") {
@@ -199,7 +204,7 @@ describe("Phase 10 routing and online behavior", () => {
       </MemoryRouter>
     );
     await user.click(screen.getByRole("button", { name: "FOH" }));
-    expect(await screen.findByRole("heading", { name: "Front of house" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "FOH ordering" })).toBeInTheDocument();
     expect(screen.getByText("Logged in as foh@example.com (FOH)")).toBeInTheDocument();
     fohApp.unmount();
 

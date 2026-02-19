@@ -69,17 +69,18 @@ def serialize_menu(
     recipes: Sequence[Recipe],
     ingredients_by_id: dict[int, Ingredient],
     active_reserved_qty_by_ingredient: dict[int, int],
-) -> list[dict[str, int | str | bool | None]]:
+) -> list[dict[str, int | str | bool | None | list[str]]]:
     recipes_by_menu_item: dict[int, list[Recipe]] = {}
     for recipe in recipes:
         recipes_by_menu_item.setdefault(recipe.menu_item_id, []).append(recipe)
 
-    payload: list[dict[str, int | str | bool | None]] = []
+    payload: list[dict[str, int | str | bool | None | list[str]]] = []
 
     for menu_item in menu_items:
         failing_reason: str | None = None
         low_stock = False
         available = True
+        max_qty_available: int | None = None
 
         ordered_recipes = sorted(
             recipes_by_menu_item.get(menu_item.id, []),
@@ -87,11 +88,17 @@ def serialize_menu(
             # First failing ingredient is chosen by ingredient_id ascending.
             key=lambda recipe: (recipe.ingredient_id, recipe.id),
         )
+        ingredient_names = [ingredients_by_id[recipe.ingredient_id].name for recipe in ordered_recipes]
 
         for recipe in ordered_recipes:
             ingredient = ingredients_by_id[recipe.ingredient_id]
             active_reserved_qty = active_reserved_qty_by_ingredient.get(ingredient.id, 0)
             available_qty = ingredient_available_qty(ingredient, active_reserved_qty)
+            ingredient_capacity = available_qty // recipe.qty_required
+            if max_qty_available is None:
+                max_qty_available = ingredient_capacity
+            else:
+                max_qty_available = min(max_qty_available, ingredient_capacity)
 
             if available_qty <= ingredient.low_stock_threshold_qty:
                 low_stock = True
@@ -110,6 +117,8 @@ def serialize_menu(
                 "available": available,
                 "low_stock": low_stock,
                 "reason": failing_reason,
+                "max_qty_available": max(0, max_qty_available or 0),
+                "ingredients": ingredient_names,
             }
         )
 

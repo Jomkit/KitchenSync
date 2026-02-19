@@ -11,9 +11,22 @@ const DEMO_USERS = {
 };
 
 export function LandingPage() {
+  return <LandingPageContent isAuthenticated={false} role={null} />;
+}
+
+export function LandingPageContent({
+  isAuthenticated,
+  role,
+}: {
+  isAuthenticated: boolean;
+  role: "kitchen" | "foh" | "online" | null;
+}) {
   const navigate = useNavigate();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const isStaff = role === "kitchen" || role === "foh";
+  const showOrderOnline = !isAuthenticated || !isStaff;
+  const showStaffQuickButtons = !isAuthenticated;
 
   const quickLogin = async (role: keyof typeof DEMO_USERS) => {
     setError("");
@@ -39,25 +52,36 @@ export function LandingPage() {
     if (tokenRole !== role) {
       setNotice(`Logged in as ${tokenRole.toUpperCase()} and redirected accordingly.`);
     }
-    navigate(`/${tokenRole}`);
+    const destination = tokenRole === "foh" ? "/online" : `/${tokenRole}`;
+    navigate(destination);
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 p-4">
+    <section className="min-h-[70vh] bg-slate-50 p-4">
       <div className="mx-auto max-w-xl rounded bg-white p-4 shadow">
-        <div className="mb-4 flex justify-end">
-          <button className="text-sm text-slate-600">Sign up</button>
-        </div>
+        {!isAuthenticated ? (
+          <div className="mb-4 flex justify-end">
+            <button className="text-sm text-slate-600">Sign up</button>
+          </div>
+        ) : null}
         <h1 className="mb-3 text-2xl font-bold">KitchenSync</h1>
-        <button className="mb-3 w-full rounded bg-blue-600 p-2 text-white" onClick={() => void quickLogin("online")}>Order online</button>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("kitchen")}>Kitchen</button>
-          <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("foh")}>FOH</button>
-          <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("online")}>Online</button>
-        </div>
+        {showOrderOnline ? (
+          <button className="mb-3 w-full rounded bg-blue-600 p-2 text-white" onClick={() => void quickLogin("online")}>Order online</button>
+        ) : null}
+        {showStaffQuickButtons ? (
+          <>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("kitchen")}>Kitchen</button>
+              <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("foh")}>FOH</button>
+              <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("online")}>Online</button>
+            </div>
+          </>
+        ) : (
+          <p className="text-slate-600">Use the navigation bar to access your available views.</p>
+        )}
         {notice ? <p className="mt-3 text-amber-700">{notice}</p> : null}
         {error ? <p className="mt-3 text-red-600">{error}</p> : null}
       </div>
-    </main>
+    </section>
   );
 }

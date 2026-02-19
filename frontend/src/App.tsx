@@ -1,10 +1,12 @@
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { clearAuth, getCurrentUser, type UserRole } from "./auth/token";
-import { LandingPage } from "./pages/LandingPage";
+import { LandingPage, LandingPageContent } from "./pages/LandingPage";
 import { KitchenPage } from "./pages/KitchenPage";
 import { FohPage } from "./pages/FohPage";
 import { OnlinePage } from "./pages/OnlinePage";
+import { OrderConfirmedPage } from "./pages/OrderConfirmedPage";
+import { MenuPage } from "./pages/MenuPage";
 
 function ProtectedRoute({ children, allow, role }: { children: JSX.Element; allow: UserRole[]; role: UserRole | null }) {
   const location = useLocation();
@@ -17,11 +19,25 @@ function ProtectedRoute({ children, allow, role }: { children: JSX.Element; allo
 }
 
 function LandingRoute({ role }: { role: UserRole | null }) {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  if (searchParams.get("landing") === "1") {
+    if (role) {
+      const currentUser = getCurrentUser();
+      return (
+        <Shell role={role} email={currentUser?.email || null}>
+          <LandingPageContent isAuthenticated role={role} />
+        </Shell>
+      );
+    }
+    return <LandingPage />;
+  }
+
   if (role === "kitchen") {
     return <Navigate to="/kitchen" replace />;
   }
   if (role === "foh") {
-    return <Navigate to="/foh" replace />;
+    return <Navigate to="/online" replace />;
   }
   if (role === "online") {
     return <Navigate to="/online" replace />;
@@ -33,15 +49,32 @@ function LandingRoute({ role }: { role: UserRole | null }) {
 function Shell({ children, role, email }: { children: JSX.Element; role: UserRole | null; email: string | null }) {
   const navigate = useNavigate();
   const roleLabel = role === "kitchen" ? "Kitchen" : role === "foh" ? "FOH" : "Online";
+  const isStaff = role === "kitchen" || role === "foh";
+  const navItemClass = ({ isActive }: { isActive: boolean }) =>
+    `rounded px-3 py-1 text-sm ${isActive ? "bg-slate-200 font-medium" : "text-slate-700 hover:bg-slate-100"}`;
 
   return (
     <main className="min-h-screen bg-slate-100 p-4 text-slate-900">
       <div className="mx-auto max-w-6xl space-y-4">
         <nav className="flex items-center gap-2 rounded bg-white p-3 shadow">
-          {role === "kitchen" ? <span className="text-sm">Kitchen</span> : null}
-          {role === "foh" ? <span className="text-sm">FOH</span> : null}
+          <NavLink to="/?landing=1" className={navItemClass}>
+            Home
+          </NavLink>
+          {isStaff ? (
+            <NavLink to="/kitchen" className={navItemClass}>
+              Kitchen
+            </NavLink>
+          ) : null}
+          {isStaff ? (
+            <NavLink to="/foh" className={navItemClass}>
+              FOH
+            </NavLink>
+          ) : null}
+          <NavLink to="/menu" className={navItemClass}>
+            Menu
+          </NavLink>
           {role === "online" ? <span className="text-sm">Online</span> : null}
-          {(role === "kitchen" || role === "foh") ? (
+          {isStaff ? (
             <span className="text-sm text-slate-600">
               Logged in as {email || "staff"} ({roleLabel})
             </span>
@@ -96,9 +129,29 @@ export function AppRoutes() {
       <Route
         path="/online"
         element={
-          <ProtectedRoute allow={["online"]} role={role}>
+          <ProtectedRoute allow={["online", "foh"]} role={role}>
             <Shell role={role} email={email}>
-              <OnlinePage />
+              <OnlinePage role={role} />
+            </Shell>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/online/confirmed"
+        element={
+          <ProtectedRoute allow={["online", "foh"]} role={role}>
+            <Shell role={role} email={email}>
+              <OrderConfirmedPage role={role} />
+            </Shell>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/menu"
+        element={
+          <ProtectedRoute allow={["kitchen", "foh", "online"]} role={role}>
+            <Shell role={role} email={email}>
+              <MenuPage />
             </Shell>
           </ProtectedRoute>
         }

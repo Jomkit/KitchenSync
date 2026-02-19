@@ -84,6 +84,25 @@ def require_role(role: str) -> Callable[[AuthHandler], AuthHandler]:
     return decorator
 
 
+def require_any_role(*roles: str) -> Callable[[AuthHandler], AuthHandler]:
+    allowed_roles = set(roles)
+
+    def decorator(handler: AuthHandler) -> AuthHandler:
+        @require_jwt
+        @wraps(handler)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            claims = g.jwt_claims
+            current_role = claims.get("role")
+            if current_role not in allowed_roles:
+                allowed_display = ", ".join(sorted(allowed_roles))
+                return _forbidden(f"One of roles [{allowed_display}] is required")
+            return handler(*args, **kwargs)
+
+        return wrapped  # type: ignore[return-value]
+
+    return decorator
+
+
 @auth_bp.post("/auth/login")
 def login() -> tuple[dict[str, Any], int]:
     payload = request.get_json(silent=True) or {}
