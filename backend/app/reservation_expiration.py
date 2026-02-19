@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+import logging
 
 import eventlet
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from db import SessionLocal
 
 EXPIRATION_INTERVAL_SECONDS = 30
 _expiration_job_started = False
+logger = logging.getLogger("kitchensync.reservation_expiration")
 
 
 def _utc_now() -> datetime:
@@ -43,6 +45,7 @@ def expire_reservations_once_and_emit(now: datetime | None = None) -> int:
     expired_count = expire_reservations_once(now=now)
     if expired_count > 0:
         socketio.emit("stateChanged")
+        logger.info("expire_reservations emitted state_changed expired_count=%s", expired_count)
     return expired_count
 
 
@@ -63,8 +66,15 @@ def _reservation_expiration_loop() -> None:
 def start_reservation_expiration_job() -> None:
     global _expiration_job_started
 
-    if _expiration_job_started or not _should_start_expiration_job():
+    should_start = _should_start_expiration_job()
+    if _expiration_job_started or not should_start:
+        logger.debug(
+            "expiration_job skipped started=%s should_start=%s",
+            _expiration_job_started,
+            should_start,
+        )
         return
 
     _expiration_job_started = True
     socketio.start_background_task(_reservation_expiration_loop)
+    logger.info("expiration_job started interval_seconds=%s", EXPIRATION_INTERVAL_SECONDS)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+import logging
 from typing import Any, Callable, TypeVar
 
 import jwt
@@ -15,6 +16,7 @@ from db import SessionLocal
 AuthHandler = TypeVar("AuthHandler", bound=Callable[..., Any])
 
 auth_bp = Blueprint("auth", __name__)
+logger = logging.getLogger("kitchensync.auth")
 
 
 def _create_access_token(user: User) -> str:
@@ -82,6 +84,25 @@ def require_role(role: str) -> Callable[[AuthHandler], AuthHandler]:
     return decorator
 
 
+def require_any_role(*roles: str) -> Callable[[AuthHandler], AuthHandler]:
+    allowed_roles = set(roles)
+
+    def decorator(handler: AuthHandler) -> AuthHandler:
+        @require_jwt
+        @wraps(handler)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            claims = g.jwt_claims
+            current_role = claims.get("role")
+            if current_role not in allowed_roles:
+                allowed_display = ", ".join(sorted(allowed_roles))
+                return _forbidden(f"One of roles [{allowed_display}] is required")
+            return handler(*args, **kwargs)
+
+        return wrapped  # type: ignore[return-value]
+
+    return decorator
+
+
 @auth_bp.post("/auth/login")
 def login() -> tuple[dict[str, Any], int]:
     payload = request.get_json(silent=True) or {}
@@ -89,15 +110,18 @@ def login() -> tuple[dict[str, Any], int]:
     password = payload.get("password")
 
     if not isinstance(username, str) or not isinstance(password, str):
+        logger.warning("login failed invalid_payload")
         return jsonify({"error": "username and password are required"}), 400
 
     with SessionLocal() as session:
         user = session.execute(select(User).where(User.email == username)).scalar_one_or_none()
 
     if user is None or user.password != password:
+        logger.warning("login failed invalid_credentials username=%s", username)
         return jsonify({"error": "Invalid credentials"}), 401
 
     access_token = _create_access_token(user)
+    logger.info("login success user_id=%s role=%s", user.id, user.role)
     return jsonify({"access_token": access_token}), 200
 
 

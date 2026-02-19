@@ -47,6 +47,17 @@ def _env_int(name: str, default: int) -> int:
         raise RuntimeError(f"Environment variable {name} must be an integer, got: {value}") from exc
 
 
+def _env_log_level(name: str, default: str) -> str:
+    value = os.getenv(name, default).upper()
+    allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    if value not in allowed_levels:
+        allowed = ", ".join(sorted(allowed_levels))
+        raise RuntimeError(
+            f"Environment variable {name} must be one of [{allowed}], got: {value}"
+        )
+    return value
+
+
 def _build_database_url_from_parts(
     *,
     prefix: str,
@@ -132,6 +143,7 @@ class Settings:
     jwt_secret_key: str
     jwt_algorithm: str
     jwt_access_token_ttl_minutes: int
+    log_level: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -145,6 +157,7 @@ class Settings:
             jwt_secret_key=os.getenv("JWT_SECRET_KEY", "dev-change-me"),
             jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
             jwt_access_token_ttl_minutes=_env_int("JWT_ACCESS_TOKEN_TTL_MINUTES", 60),
+            log_level=_env_log_level("LOG_LEVEL", "INFO"),
         )
 
 

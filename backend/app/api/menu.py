@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, jsonify
 from sqlalchemy import select
 
@@ -6,6 +8,7 @@ from app.models import Ingredient, MenuItem, Recipe
 from db import SessionLocal
 
 menu_bp = Blueprint("menu", __name__)
+logger = logging.getLogger("kitchensync.api.menu")
 
 
 @menu_bp.get("/menu")
@@ -23,4 +26,5 @@ def get_menu() -> tuple[list[dict[str, int | str | bool | None]], int]:
         ingredients_by_id=ingredients_by_id,
         active_reserved_qty_by_ingredient=active_reserved_qty_by_ingredient,
     )
+    logger.info("get_menu success count=%s", len(menu_payload))
     return jsonify(menu_payload), 200
