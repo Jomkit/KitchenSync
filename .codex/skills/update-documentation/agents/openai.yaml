@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update Documentation"
+  short_description: "Apply precise, structured Markdown doc updates"
+  default_prompt: "Use $update-documentation to make a targeted documentation change in this repository."
