@@ -15,6 +15,8 @@ def create_app() -> Flask:
         return jsonify({"status": "ok"}), 200
 
     from app import events  # noqa: F401
+    from app.auth import auth_bp
 
+    app.register_blueprint(auth_bp)
     socketio.init_app(app, async_mode="eventlet")
     return app

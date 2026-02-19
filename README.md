@@ -21,6 +21,8 @@ Backend uses Flask + Flask-SocketIO + SQLAlchemy + PostgreSQL. Frontend uses Vit
 Implemented today:
 - Flask-SocketIO app with eventlet runtime (`backend/run.py`)
 - Health endpoint: `GET /health`
+- Auth endpoint: `POST /auth/login` (seeded users, JWT access token with role claim)
+- Protected examples: `GET /kitchen/overview`, `GET /foh/overview`, `GET /auth/me`
 - Socket event: client `ping` -> server `pong`
 - PostgreSQL Docker services for dev/test (`backend/docker-compose.yml`)
 - SQLAlchemy domain models in `backend/app/models.py`
@@ -130,6 +132,9 @@ Backend reads these values:
 - `HOST` default: `0.0.0.0`
 - `PORT` default: `5000`
 - `FLASK_DEBUG` set to `1` to enable debug/reloader
+- `JWT_SECRET_KEY` default: `dev-change-me`
+- `JWT_ALGORITHM` default: `HS256`
+- `JWT_ACCESS_TOKEN_TTL_MINUTES` default: `60`
 
 Database URL resolution in `backend/config.py`:
 - `APP_ENV=test` + `TEST_DATABASE_URL` if present
