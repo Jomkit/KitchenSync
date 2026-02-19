@@ -75,7 +75,7 @@ Reservation requirements:
 - Must use SELECT FOR UPDATE on ingredient rows
 - Must prevent negative inventory
 - Must return structured 409 errors when insufficient
-- Must support states: active, committed, released, expired
+- Must support reservation status values: active, committed, released, expired
 - Default TTL: 10 minutes
 - Expiration job runs in-process every ~30 seconds
 
@@ -89,6 +89,20 @@ Commit must:
 - Decrement on_hand_qty
 - Mark reservation committed
 - Be idempotent-safe
+
+## Current Schema Contract (Non-Negotiable)
+
+Backend schema is defined in `backend/app/models.py`. Keep naming aligned with these fields:
+- `Reservation.status` (not `state`)
+- `ReservationItem.qty` (not `quantity`)
+- `User` requires `email`, `password`, and `role`; `display_name` is optional and non-unique
+- `Ingredient.low_stock_threshold_qty` default is `5`
+- `MenuItem` includes optional `category` and `allergens` (CSV string for MVP)
+
+Unique constraints that must remain:
+- `recipes(menu_item_id, ingredient_id)`
+- `reservation_items(reservation_id, menu_item_id)`
+- `reservation_ingredients(reservation_id, ingredient_id)`
 
 ## Build, Test, and Development Commands
 - `cd frontend && npm install`: install frontend dependencies.

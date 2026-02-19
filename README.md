@@ -32,6 +32,38 @@ Not implemented yet:
 - Reservation API flows and expiration worker behavior
 - Backend test suite files (Make target exists, but tests are not yet committed)
 
+## Current MVP Database Schema
+
+Source of truth: `backend/app/models.py`
+
+- `users`
+  - `email` unique, non-null
+  - `password` non-null (MVP plain-text)
+  - `role` non-null (`kitchen|foh|online`)
+  - `display_name` nullable, non-unique
+- `ingredients`
+  - `name` unique, non-null
+  - `on_hand_qty` non-null integer
+  - `low_stock_threshold_qty` non-null integer, default `5`
+  - `is_out` non-null boolean
+- `menu_items`
+  - `name` unique, non-null
+  - `price_cents` non-null integer
+  - `category` nullable string
+  - `allergens` nullable string (CSV for MVP)
+- `recipes`
+  - `menu_item_id`, `ingredient_id`, `qty_required`
+  - unique constraint on `(menu_item_id, ingredient_id)`
+- `reservations`
+  - `user_id`, `status`, `created_at`, `updated_at`, `expires_at`
+  - `status` values used by MVP: `active|committed|released|expired`
+- `reservation_items`
+  - `reservation_id`, `menu_item_id`, `qty`, `notes`
+  - unique constraint on `(reservation_id, menu_item_id)`
+- `reservation_ingredients`
+  - `reservation_id`, `ingredient_id`, `qty_reserved`
+  - unique constraint on `(reservation_id, ingredient_id)`
+
 ## Prerequisites
 
 - Python 3.11+
@@ -149,6 +181,7 @@ Test DB:
 
 - Always run backend with `python run.py` (not `flask run`) so Socket.IO runs with eventlet.
 - No migrations are used in this MVP; schema is created via SQLAlchemy `create_all()`.
+- `backend/seed.py` resets backend tables (`drop_all()` then `create_all()`) before inserting sample data.
 - Frontend currently hardcodes backend URL to `http://localhost:5000` in `frontend/src/App.tsx`.
 - `stateChanged` is the only intended realtime broadcast event for data refresh.
 
