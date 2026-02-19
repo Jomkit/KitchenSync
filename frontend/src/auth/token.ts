@@ -1,6 +1,7 @@
 export type UserRole = "kitchen" | "foh" | "online";
 
 type TokenPayload = {
+  email?: string;
   role?: string;
   exp?: number;
 };
@@ -21,6 +22,17 @@ export function clearAuth(): void {
 }
 
 export function parseTokenRole(token: string): UserRole | null {
+  const payload = parseTokenPayload(token);
+  if (!payload) {
+    return null;
+  }
+  if (payload.role === "kitchen" || payload.role === "foh" || payload.role === "online") {
+    return payload.role;
+  }
+  return null;
+}
+
+function parseTokenPayload(token: string): TokenPayload | null {
   const sections = token.split(".");
   if (sections.length !== 3) {
     return null;
@@ -31,19 +43,30 @@ export function parseTokenRole(token: string): UserRole | null {
     if (typeof payload.exp === "number" && payload.exp * 1000 < Date.now()) {
       return null;
     }
-    if (payload.role === "kitchen" || payload.role === "foh" || payload.role === "online") {
-      return payload.role;
-    }
-    return null;
+    return payload;
   } catch {
     return null;
   }
 }
 
-export function getCurrentRole(): UserRole | null {
+export function getCurrentUser(): { role: UserRole; email: string | null } | null {
   const token = getToken();
   if (!token) {
     return null;
   }
-  return parseTokenRole(token);
+  const payload = parseTokenPayload(token);
+  if (!payload) {
+    return null;
+  }
+  if (payload.role !== "kitchen" && payload.role !== "foh" && payload.role !== "online") {
+    return null;
+  }
+  return {
+    role: payload.role,
+    email: typeof payload.email === "string" ? payload.email : null,
+  };
+}
+
+export function getCurrentRole(): UserRole | null {
+  return getCurrentUser()?.role || null;
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+import logging
 from typing import Any, Callable, TypeVar
 
 import jwt
@@ -15,6 +16,7 @@ from db import SessionLocal
 AuthHandler = TypeVar("AuthHandler", bound=Callable[..., Any])
 
 auth_bp = Blueprint("auth", __name__)
+logger = logging.getLogger("kitchensync.auth")
 
 
 def _create_access_token(user: User) -> str:
@@ -89,15 +91,18 @@ def login() -> tuple[dict[str, Any], int]:
     password = payload.get("password")
 
     if not isinstance(username, str) or not isinstance(password, str):
+        logger.warning("login failed invalid_payload")
         return jsonify({"error": "username and password are required"}), 400
 
     with SessionLocal() as session:
         user = session.execute(select(User).where(User.email == username)).scalar_one_or_none()
 
     if user is None or user.password != password:
+        logger.warning("login failed invalid_credentials username=%s", username)
         return jsonify({"error": "Invalid credentials"}), 401
 
     access_token = _create_access_token(user)
+    logger.info("login success user_id=%s role=%s", user.id, user.role)
     return jsonify({"access_token": access_token}), 200
 
 

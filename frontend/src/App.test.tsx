@@ -17,7 +17,18 @@ vi.mock("socket.io-client", () => ({
 }));
 
 function makeToken(role: "kitchen" | "foh" | "online") {
-  const payload = btoa(JSON.stringify({ role, exp: Math.floor(Date.now() / 1000) + 3600 }));
+  const emailByRole = {
+    kitchen: "kitchen@example.com",
+    foh: "foh@example.com",
+    online: "online@example.com",
+  };
+  const payload = btoa(
+    JSON.stringify({
+      role,
+      email: emailByRole[role],
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    })
+  );
   return `x.${payload}.x`;
 }
 
@@ -143,5 +154,62 @@ describe("Phase 10 routing and online behavior", () => {
     await waitFor(() => {
       expect(screen.getByText("[Caprese] sold-out: insufficient Tomatoes")).toBeInTheDocument();
     });
+  });
+
+  it("quick login buttons route to their respective role views", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/auth/login")) {
+        const body = JSON.parse(String(init?.body || "{}")) as { username?: string };
+        if (body.username === "kitchen@example.com") {
+          return Promise.resolve(new Response(JSON.stringify({ access_token: makeToken("kitchen") }), { status: 200 }));
+        }
+        if (body.username === "foh@example.com") {
+          return Promise.resolve(new Response(JSON.stringify({ access_token: makeToken("foh") }), { status: 200 }));
+        }
+        if (body.username === "online@example.com") {
+          return Promise.resolve(new Response(JSON.stringify({ access_token: makeToken("online") }), { status: 200 }));
+        }
+      }
+      if (url.includes("/ingredients")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (url.includes("/menu")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    const kitchenApp = render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Kitchen" }));
+    expect(await screen.findByRole("heading", { name: "Kitchen" })).toBeInTheDocument();
+    expect(screen.getByText("Logged in as kitchen@example.com (Kitchen)")).toBeInTheDocument();
+    kitchenApp.unmount();
+
+    localStorage.clear();
+    const fohApp = render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+    await user.click(screen.getByRole("button", { name: "FOH" }));
+    expect(await screen.findByRole("heading", { name: "Front of house" })).toBeInTheDocument();
+    expect(screen.getByText("Logged in as foh@example.com (FOH)")).toBeInTheDocument();
+    fohApp.unmount();
+
+    localStorage.clear();
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+    await user.click(screen.getByRole("button", { name: "Online" }));
+    expect(await screen.findByRole("heading", { name: "Online ordering" })).toBeInTheDocument();
   });
 });

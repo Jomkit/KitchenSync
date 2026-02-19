@@ -14,7 +14,7 @@ type Ingredient = {
   is_out: boolean;
 };
 
-export function KitchenPage({ role }: { role: UserRole }) {
+export function KitchenPage({ role }: { role: UserRole | null }) {
   const [items, setItems] = useState<Ingredient[]>([]);
   const [errors, setErrors] = useState<Record<number, string>>({});
   const [isEditing, setIsEditing] = useState(false);
@@ -82,11 +82,19 @@ export function KitchenPage({ role }: { role: UserRole }) {
             </label>
           </div>
           <div className="mt-2 flex items-center gap-2 text-sm">
-            <button disabled={role !== "kitchen" || item.is_out} onClick={() => {
-              const value = Math.max(0, item.on_hand_qty - 1);
-              updateLocal(item.id, { on_hand_qty: value });
-              void save(item.id, { on_hand_qty: value });
-            }}>-</button>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold text-slate-700 enabled:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label={`Decrease ${item.name}`}
+              disabled={role !== "kitchen" || item.is_out}
+              onClick={() => {
+                const value = Math.max(0, item.on_hand_qty - 1);
+                updateLocal(item.id, { on_hand_qty: value });
+                void save(item.id, { on_hand_qty: value });
+              }}
+            >
+              -
+            </button>
             <input
               className="w-20 rounded border px-2"
               value={item.on_hand_qty}
@@ -104,11 +112,19 @@ export function KitchenPage({ role }: { role: UserRole }) {
                 updateLocal(item.id, { on_hand_qty: value });
               }}
             />
-            <button disabled={role !== "kitchen" || item.is_out} onClick={() => {
-              const value = item.on_hand_qty + 1;
-              updateLocal(item.id, { on_hand_qty: value });
-              void save(item.id, { on_hand_qty: value });
-            }}>+</button>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold text-slate-700 enabled:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label={`Increase ${item.name}`}
+              disabled={role !== "kitchen" || item.is_out}
+              onClick={() => {
+                const value = item.on_hand_qty + 1;
+                updateLocal(item.id, { on_hand_qty: value });
+                void save(item.id, { on_hand_qty: value });
+              }}
+            >
+              +
+            </button>
             <span>Reserved: {item.active_reserved_qty}</span>
             <span>Available: {item.available_qty}</span>
             <span>{item.low_stock ? "LOW" : "OK"}</span>

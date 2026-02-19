@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { apiFetch } from "../api/client";
-import { setToken } from "../auth/token";
+import { parseTokenRole, setToken } from "../auth/token";
 
 const DEMO_USERS = {
   online: { username: "online@example.com", password: "pass" },
@@ -13,9 +13,11 @@ const DEMO_USERS = {
 export function LandingPage() {
   const navigate = useNavigate();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const quickLogin = async (role: keyof typeof DEMO_USERS) => {
     setError("");
+    setNotice("");
     const response = await apiFetch("/auth/login", {
       method: "POST",
       body: JSON.stringify(DEMO_USERS[role]),
@@ -28,7 +30,16 @@ export function LandingPage() {
 
     const data = (await response.json()) as { access_token: string };
     setToken(data.access_token);
-    navigate(`/${role}`);
+    const tokenRole = parseTokenRole(data.access_token);
+    if (!tokenRole) {
+      setError("Unable to read role from access token");
+      return;
+    }
+
+    if (tokenRole !== role) {
+      setNotice(`Logged in as ${tokenRole.toUpperCase()} and redirected accordingly.`);
+    }
+    navigate(`/${tokenRole}`);
   };
 
   return (
@@ -44,6 +55,7 @@ export function LandingPage() {
           <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("foh")}>FOH</button>
           <button className="rounded bg-slate-200 p-2" onClick={() => void quickLogin("online")}>Online</button>
         </div>
+        {notice ? <p className="mt-3 text-amber-700">{notice}</p> : null}
         {error ? <p className="mt-3 text-red-600">{error}</p> : null}
       </div>
     </main>

@@ -149,6 +149,7 @@ Backend reads these values:
 - `JWT_SECRET_KEY` default: `dev-change-me`
 - `JWT_ALGORITHM` default: `HS256`
 - `JWT_ACCESS_TOKEN_TTL_MINUTES` default: `60`
+- `LOG_LEVEL` default: `INFO` (`DEBUG|INFO|WARNING|ERROR|CRITICAL`)
 
 Database URL resolution in `backend/config.py`:
 - `APP_ENV=test` + `TEST_DATABASE_URL` if present
@@ -204,6 +205,7 @@ Test DB:
 - Frontend currently hardcodes backend URL to `http://localhost:5000` in `frontend/src/api/client.ts` and `frontend/src/realtime/useStateChangedRefetch.ts`.
 - `stateChanged` is the realtime broadcast event used for client refetch.
 - Frontend unit tests run via Vitest (`cd frontend && npm test`).
+- Frontend logging level can be controlled with `VITE_LOG_LEVEL` (`debug|info|warn|error`), defaulting to `debug` in dev and `warn` otherwise.
 
 ## Troubleshooting
 
