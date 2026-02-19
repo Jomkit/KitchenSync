@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "./App";
 
@@ -24,6 +24,12 @@ function makeToken(role: "kitchen" | "foh" | "online") {
 describe("Phase 10 routing and online behavior", () => {
   beforeEach(() => {
     fetchMock.mockReset();
+    fetchMock.mockImplementation(() => Promise.resolve(new Response("[]", { status: 200 })));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.clear();
   });
 
   it("redirects protected routes when token missing", async () => {
@@ -56,7 +62,7 @@ describe("Phase 10 routing and online behavior", () => {
   });
 
   it("uses PATCH reservations when activeReservationId exists", async () => {
-    vi.useFakeTimers();
+    const user = userEvent.setup();
     localStorage.setItem("accessToken", makeToken("online"));
     localStorage.setItem("activeReservationId", "123");
 
@@ -78,9 +84,7 @@ describe("Phase 10 routing and online behavior", () => {
     );
 
     await screen.findByText("Pizza");
-    await userEvent.click(screen.getByRole("button", { name: "Add Pizza" }));
-
-    vi.advanceTimersByTime(450);
+    await user.click(screen.getByRole("button", { name: "Add Pizza" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -91,11 +95,10 @@ describe("Phase 10 routing and online behavior", () => {
         })
       );
     });
-    vi.useRealTimers();
   });
 
   it("formats 409 insufficient errors at top of page", async () => {
-    vi.useFakeTimers();
+    const user = userEvent.setup();
     localStorage.setItem("accessToken", makeToken("online"));
     localStorage.setItem("activeReservationId", "123");
 
@@ -136,10 +139,9 @@ describe("Phase 10 routing and online behavior", () => {
     );
 
     await screen.findByText("Caprese");
-    await userEvent.click(screen.getByRole("button", { name: "Add Caprese" }));
-    vi.advanceTimersByTime(450);
-
-    expect(await screen.findByText("[Caprese] sold-out: insufficient Tomatoes")).toBeInTheDocument();
-    vi.useRealTimers();
+    await user.click(screen.getByRole("button", { name: "Add Caprese" }));
+    await waitFor(() => {
+      expect(screen.getByText("[Caprese] sold-out: insufficient Tomatoes")).toBeInTheDocument();
+    });
   });
 });
