@@ -23,16 +23,25 @@ Implemented today:
 - Health endpoint: `GET /health`
 - Auth endpoint: `POST /auth/login` (seeded users, JWT access token with role claim)
 - Protected examples: `GET /kitchen/overview`, `GET /foh/overview`, `GET /auth/me`
-- Socket event: client `ping` -> server `pong`
+- Menu endpoint: `GET /menu` (availability + low stock + deterministic reason)
+- Ingredients endpoints: `GET /ingredients`, `PATCH /ingredients/:id` (kitchen role)
+- Reservation endpoints:
+  - `POST /reservations`
+  - `PATCH /reservations/:id`
+  - `POST /reservations/:id/commit`
+  - `POST /reservations/:id/release`
+- Reservation expiration worker (`backend/app/reservation_expiration.py`): runs every 30s, expires active reservations, emits `stateChanged`
+- Socket events:
+  - broadcast: `stateChanged` (used by frontend refetch flow)
+  - request/response: client `ping` -> server `pong`
 - PostgreSQL Docker services for dev/test (`backend/docker-compose.yml`)
 - SQLAlchemy domain models in `backend/app/models.py`
 - Schema bootstrap via `create_all()` and sample data seed via `backend/seed.py`
-- Frontend dashboard that connects to Socket.IO and listens for `stateChanged`
-
-Not implemented yet:
-- Backend REST endpoints used by frontend (`/menu`, `/ingredients`)
-- Reservation API flows and expiration worker behavior
-- Backend test suite files (Make target exists, but tests are not yet committed)
+- Frontend routes:
+  - `/kitchen` (kitchen + foh readonly)
+  - `/foh` (front-of-house status board)
+  - `/online` (online cart + reservation hold/commit/release)
+- Backend tests under `backend/tests/` for reservation correctness, concurrency, expiration, and availability serialization
 
 ## Current MVP Database Schema
 
@@ -121,6 +130,11 @@ npm run dev
 - Frontend: `http://localhost:5173`
 - Backend health: `http://localhost:5000/health`
 
+Seeded login credentials (`make seed`):
+- `kitchen@example.com` / `pass`
+- `foh@example.com` / `pass`
+- `online@example.com` / `pass`
+
 ## Environment Variables
 
 Environment variables are centralized in `backend/config.py`, which loads `backend/.env` at startup and exposes typed settings to the backend runtime.
@@ -179,7 +193,7 @@ Test DB:
 - `make test-seed` (seeds test DB using the same `backend/seed.py`)
 - `make backend-dev`
 - `make frontend-dev`
-- `make test` (runs `pytest -q` in `backend/`)
+- `make test` (runs `pytest -qv` in `backend/`)
 - `make clean`
 
 ## Development Notes
@@ -187,11 +201,12 @@ Test DB:
 - Always run backend with `python run.py` (not `flask run`) so Socket.IO runs with eventlet.
 - No migrations are used in this MVP; schema is created via SQLAlchemy `create_all()`.
 - `backend/seed.py` resets backend tables (`drop_all()` then `create_all()`) before inserting sample data.
-- Frontend currently hardcodes backend URL to `http://localhost:5000` in `frontend/src/App.tsx`.
-- `stateChanged` is the only intended realtime broadcast event for data refresh.
+- Frontend currently hardcodes backend URL to `http://localhost:5000` in `frontend/src/api/client.ts` and `frontend/src/realtime/useStateChangedRefetch.ts`.
+- `stateChanged` is the realtime broadcast event used for client refetch.
+- Frontend unit tests run via Vitest (`cd frontend && npm test`).
 
 ## Troubleshooting
 
-- If frontend shows request errors for menu/ingredients, that is expected until `/menu` and `/ingredients` endpoints are implemented in backend.
 - If DB connection fails, verify Docker containers are running and `DATABASE_URL` matches the right port (`5432` dev, `5433` test).
 - If `make test` fails with `pytest: command not found`, install pytest in the backend venv (`pip install pytest`).
+- If `npm test` times out in `frontend/src/App.test.tsx`, ensure you're on the latest test file changes (the current suite expects real timers, not forced fake timers).

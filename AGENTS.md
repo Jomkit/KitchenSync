@@ -18,6 +18,7 @@ WebSocket strategy:
 - Emit only one event: `stateChanged`
 - Clients must refetch API endpoints
 - Do not implement granular/delta synchronization
+- Existing request/response socket handler `ping -> pong` in `backend/app/events.py` is allowed for connectivity checks; do not add additional custom events
 
 If unsure whether a feature is in scope, ask before implementing.
 
@@ -26,6 +27,7 @@ KitchenSync is a small monorepo with two workspaces:
 - `backend/`: Flask + Flask-SocketIO service entrypoint in `backend/run.py`, app factory in `backend/app/__init__.py`, and socket events in `backend/app/events.py`.
 - `frontend/`: Vite + React + TypeScript app, with UI entrypoint in `frontend/src/main.tsx`.
 - `docs/`: planning and proposal notes (`docs/proposal.md`).
+- `backend/tests/`: pytest coverage for reservation correctness, concurrency, expiration, and availability serialization.
 
 Keep backend and frontend concerns isolated; shared contracts should be documented in `docs/` before cross-stack changes.
 
@@ -109,6 +111,7 @@ Unique constraints that must remain:
 - `cd frontend && npm run dev`: run Vite dev server on localhost.
 - `cd frontend && npm run build`: run TypeScript project build (`tsc -b`) and production bundle.
 - `cd frontend && npm run preview`: preview the production build locally.
+- `cd frontend && npm test`: run frontend Vitest suite.
 - `cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`: backend setup.
 - `cd backend && python run.py`: start Flask-SocketIO server (default `0.0.0.0:5000`).
 - `cd backend && docker compose up -d`: start local Postgres services (`db` on `5432`, `db_test` on `5433`).
@@ -163,4 +166,4 @@ PRs should include:
 - Must use eventlet async mode.
 - Must use `socketio.run(app)`, not `app.run()`.
 - Expiration job must not start twice under debug reloader.
-- Only emit `stateChanged` events.
+- Only emit `stateChanged` as a broadcast state update event; keep `ping -> pong` limited to connectivity checks.
