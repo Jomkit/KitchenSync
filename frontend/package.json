@@ -1,0 +1,11 @@
+{
+  "name": "kitchensync-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/dev-server.js",
+    "start": "node src/dev-server.js",
+    "test": "node --test"
+  }
+}
