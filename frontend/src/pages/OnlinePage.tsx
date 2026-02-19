@@ -42,6 +42,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const [cart, setCart] = useState<Record<number, number>>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isReserving, setIsReserving] = useState(false);
+  const [isSyncingReservation, setIsSyncingReservation] = useState(false);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [alert, setAlert] = useState("");
   const timerRef = useRef<number | null>(null);
@@ -96,28 +97,33 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
         const path = reservationId ? `/reservations/${reservationId}` : "/reservations";
         const method = reservationId ? "PATCH" : "POST";
 
-        const response = await apiFetch(path, {
-          method,
-          body: JSON.stringify({ items }),
-        });
+        setIsSyncingReservation(true);
+        try {
+          const response = await apiFetch(path, {
+            method,
+            body: JSON.stringify({ items }),
+          });
 
-        if (response.status === 409) {
-          const body = (await response.json()) as { code?: string; errors?: ReservationError[] };
-          if (body.code === "INSUFFICIENT_INGREDIENTS" && body.errors) {
-            setConflicts(body.errors.map((error) => mapConflictLine(error.ingredient_name)));
+          if (response.status === 409) {
+            const body = (await response.json()) as { code?: string; errors?: ReservationError[] };
+            if (body.code === "INSUFFICIENT_INGREDIENTS" && body.errors) {
+              setConflicts(body.errors.map((error) => mapConflictLine(error.ingredient_name)));
+              return;
+            }
             return;
           }
-          return;
-        }
 
-        if (!response.ok) {
-          return;
-        }
+          if (!response.ok) {
+            return;
+          }
 
-        setConflicts([]);
-        const body = (await response.json()) as { id: number };
-        if (!reservationId && body.id) {
-          localStorage.setItem("activeReservationId", String(body.id));
+          setConflicts([]);
+          const body = (await response.json()) as { id: number };
+          if (!reservationId && body.id) {
+            localStorage.setItem("activeReservationId", String(body.id));
+          }
+        } finally {
+          setIsSyncingReservation(false);
         }
       })();
     }, 400);
@@ -152,8 +158,11 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     setCart((prev) => {
       const currentQty = prev[menuItemId] || 0;
       const maxQty = maxQtyByMenuItem[menuItemId] ?? 0;
+      if (delta > 0 && isSyncingReservation) {
+        return prev;
+      }
       const nextQty = delta > 0
-        ? (maxQty <= 0 ? currentQty : currentQty + delta)
+        ? (maxQty <= 0 ? currentQty : Math.min(maxQty, currentQty + delta))
         : Math.max(0, currentQty + delta);
       if (nextQty === currentQty) {
         return prev;
@@ -173,6 +182,9 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   };
 
   const commit = async () => {
+    if (items.length === 0) {
+      return;
+    }
     const reservationId = localStorage.getItem("activeReservationId");
     if (!reservationId) {
       return;
@@ -225,7 +237,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
             <div className="mt-3 flex items-center justify-between">
               <button
                 type="button"
-                disabled={!item.available || getItemMaxQty(item) <= 0}
+                disabled={!item.available || getItemMaxQty(item) <= 0 || isSyncingReservation}
                 className="rounded bg-blue-600 px-3 py-1 text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                 onClick={() => adjustCartQty(item.id, 1)}
               >
@@ -246,7 +258,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold disabled:opacity-50"
                     aria-label={`Increase ${item.name}`}
-                    disabled={getItemMaxQty(item) <= 0}
+                    disabled={getItemMaxQty(item) <= 0 || isSyncingReservation}
                     onClick={() => adjustCartQty(item.id, 1)}
                   >
                     +
@@ -311,7 +323,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
                   <button
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold disabled:opacity-50"
-                    disabled={getItemMaxQty(menuItem) <= 0}
+                    disabled={getItemMaxQty(menuItem) <= 0 || isSyncingReservation}
                     onClick={() => adjustCartQty(item.menu_item_id, 1)}
                   >
                     +
@@ -329,7 +341,14 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
         ) : null}
         {localStorage.getItem("activeReservationId") ? (
           <div className="mt-4 flex gap-2">
-            <button className="rounded bg-green-600 px-3 py-2 text-white" onClick={() => void commit()}>Checkout</button>
+            <button
+              type="button"
+              className="rounded bg-green-600 px-3 py-2 text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              disabled={items.length === 0}
+              onClick={() => void commit()}
+            >
+              Checkout
+            </button>
             <button className="rounded bg-slate-300 px-3 py-2" onClick={() => void release()}>Cancel order</button>
           </div>
         ) : null}
