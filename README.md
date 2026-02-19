@@ -1,6 +1,6 @@
 # KitchenSync
 
-KitchenSync is a small monorepo for a restaurant inventory and reservation MVP.
+KitchenSync is a small monorepo for a restaurant inventory and ordering MVP.
 
 Backend uses Flask + Flask-SocketIO + SQLAlchemy + PostgreSQL. Frontend uses Vite + React + TypeScript.
 
@@ -30,6 +30,7 @@ Implemented today:
   - `PATCH /reservations/:id`
   - `POST /reservations/:id/commit`
   - `POST /reservations/:id/release`
+  - Reservation write endpoints are accessible to `online` and `foh` roles
 - Reservation expiration worker (`backend/app/reservation_expiration.py`): runs every 30s, expires active reservations, emits `stateChanged`
 - Socket events:
   - broadcast: `stateChanged` (used by frontend refetch flow)
@@ -38,9 +39,11 @@ Implemented today:
 - SQLAlchemy domain models in `backend/app/models.py`
 - Schema bootstrap via `create_all()` and sample data seed via `backend/seed.py`
 - Frontend routes:
-  - `/kitchen` (kitchen + foh readonly)
+  - `/kitchen` (kitchen editable, foh readonly)
   - `/foh` (front-of-house status board)
-  - `/online` (online cart + reservation hold/commit/release)
+  - `/online` (ordering/cart flow for online and foh users)
+  - `/menu` (non-interactive menu board for all authenticated users)
+  - `/online/confirmed` (post-checkout confirmation screen)
 - Backend tests under `backend/tests/` for reservation correctness, concurrency, expiration, and availability serialization
 
 ## Current MVP Database Schema
@@ -109,12 +112,16 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Initialize schema and seed sample data:
+4. Initialize schema and seed sample data (from the activated backend venv shell):
+```bash
+python seed.py
+```
+Optional equivalent from repo root:
 ```bash
 make seed
 ```
 
-5. Start backend (required entrypoint):
+5. Start backend (required entrypoint, same backend shell):
 ```bash
 python run.py
 ```
@@ -206,9 +213,15 @@ Test DB:
 - `stateChanged` is the realtime broadcast event used for client refetch.
 - Frontend unit tests run via Vitest (`cd frontend && npm test`).
 - Frontend logging level can be controlled with `VITE_LOG_LEVEL` (`debug|info|warn|error`), defaulting to `debug` in dev and `warn` otherwise.
+- Landing behavior:
+  - Visiting `/` directly redirects authenticated users by role.
+  - Navbar `Home` links to an explicit landing view (`/?landing=1`) without forcing role redirect.
 
 ## Troubleshooting
 
 - If DB connection fails, verify Docker containers are running and `DATABASE_URL` matches the right port (`5432` dev, `5433` test).
+- If you hit SQL errors about missing columns/tables after pulling changes, reset and reseed local DB:
+  - `make db-reset`
+  - `cd backend && python seed.py`
 - If `make test` fails with `pytest: command not found`, install pytest in the backend venv (`pip install pytest`).
 - If `npm test` times out in `frontend/src/App.test.tsx`, ensure you're on the latest test file changes (the current suite expects real timers, not forced fake timers).

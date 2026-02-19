@@ -77,6 +77,7 @@ Reservation requirements:
 - Must use SELECT FOR UPDATE on ingredient rows
 - Must prevent negative inventory
 - Must return structured 409 errors when insufficient
+- Reservation write flows are available to `online` and `foh` roles
 - Must support reservation status values: active, committed, released, expired
 - Default TTL: 10 minutes
 - Expiration job runs in-process every ~30 seconds
