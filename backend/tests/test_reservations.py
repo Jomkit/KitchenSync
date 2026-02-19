@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from queue import Queue
-from threading import Barrier, Thread
+from threading import Barrier, Thread, local
 
-from sqlalchemy import select
+import app.api.reservations as reservations_api
+from sqlalchemy import func, select
 
 from app import create_app
 from app.models import Ingredient, MenuItem, Recipe, Reservation, ReservationIngredient, ReservationItem
 from app.reservation_expiration import expire_reservations_once_and_emit
-from db import SessionLocal
+from db import SessionLocal, engine
 
 
 def _login_online(client) -> str:
@@ -122,7 +123,7 @@ def test_reservation_failure_returns_409_structured_errors(app_client) -> None:
     assert "Test Out Lettuce" in error["message"]
 
 
-def test_concurrent_reservations_only_one_succeeds(app_client) -> None:
+def test_concurrent_reservations_only_one_succeeds(app_client, monkeypatch) -> None:
     with SessionLocal() as session:
         patty = Ingredient(
             name="Test Last Patty",
@@ -135,17 +136,33 @@ def test_concurrent_reservations_only_one_succeeds(app_client) -> None:
         session.flush()
         session.add(Recipe(menu_item_id=item.id, ingredient_id=patty.id, qty_required=1))
         session.commit()
+        ingredient_id = patty.id
         menu_item_id = item.id
 
     token = _login_online(app_client)
     barrier = Barrier(3)
+    connection_ids: Queue[int] = Queue()
     results: Queue[tuple[int, dict[str, object]]] = Queue()
     errors: Queue[BaseException] = Queue()
+    thread_state = local()
+    real_session_factory = SessionLocal
+
+    def thread_bound_session_factory():
+        session = getattr(thread_state, "session", None)
+        if session is None:
+            raise RuntimeError("Missing thread-bound SQLAlchemy session")
+        return session
+
+    monkeypatch.setattr(reservations_api, "SessionLocal", thread_bound_session_factory)
 
     def worker() -> None:
         local_app = create_app()
         local_app.config["TESTING"] = True
+        connection = engine.connect()
+        session = real_session_factory(bind=connection)
+        thread_state.session = session
         try:
+            connection_ids.put(id(connection.connection))
             with local_app.test_client() as local_client:
                 barrier.wait(timeout=15)
                 response = local_client.post(
@@ -156,6 +173,11 @@ def test_concurrent_reservations_only_one_succeeds(app_client) -> None:
                 results.put((response.status_code, response.get_json()))
         except BaseException as exc:
             errors.put(exc)
+        finally:
+            session.close()
+            connection.close()
+            if hasattr(thread_state, "session"):
+                del thread_state.session
 
     t1 = Thread(target=worker)
     t2 = Thread(target=worker)
@@ -168,13 +190,31 @@ def test_concurrent_reservations_only_one_succeeds(app_client) -> None:
 
     assert errors.empty(), list(errors.queue)
     assert results.qsize() == 2
+    assert connection_ids.qsize() == 2
 
     outcomes = [results.get_nowait(), results.get_nowait()]
     status_codes = sorted([status for status, _ in outcomes])
     assert status_codes == [201, 409]
+    assert len({connection_ids.get_nowait(), connection_ids.get_nowait()}) == 2
 
     conflict_body = next(body for status, body in outcomes if status == 409)
     assert conflict_body["code"] == "INSUFFICIENT_INGREDIENTS"
+
+    with SessionLocal() as session:
+        ingredient = session.get(Ingredient, ingredient_id)
+        assert ingredient is not None
+        assert ingredient.on_hand_qty == 1
+
+        active_reserved_qty = session.execute(
+            select(func.coalesce(func.sum(ReservationIngredient.qty_reserved), 0))
+            .join(Reservation, Reservation.id == ReservationIngredient.reservation_id)
+            .where(
+                ReservationIngredient.ingredient_id == ingredient_id,
+                Reservation.status == "active",
+                Reservation.expires_at > datetime.now(timezone.utc),
+            )
+        ).scalar_one()
+        assert int(active_reserved_qty) == 1
 
 
 def test_commit_is_idempotent_and_decrements_once(app_client) -> None:
