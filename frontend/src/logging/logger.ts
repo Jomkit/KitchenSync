@@ -1,4 +1,4 @@
-type LogLevel = "debug" | "info" | "warn" | "error";
+import { env, type LogLevel } from "../config/env";
 
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 10,
@@ -7,9 +7,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   error: 40,
 };
 
-const defaultLevel = import.meta.env.MODE === "test" ? "warn" : (import.meta.env.DEV ? "debug" : "warn");
-const configuredLevel = (import.meta.env.VITE_LOG_LEVEL || defaultLevel).toLowerCase();
-const activeLevel: LogLevel = configuredLevel in LOG_LEVEL_PRIORITY ? (configuredLevel as LogLevel) : "warn";
+const activeLevel: LogLevel = env.logLevel;
 
 function shouldLog(level: LogLevel): boolean {
   return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[activeLevel];

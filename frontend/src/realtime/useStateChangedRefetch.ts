@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 
+import { env } from "../config/env";
 import { logger } from "../logging/logger";
-
-const API_BASE_URL = "http://localhost:5000";
 
 export function useStateChangedRefetch(
   refetch: () => void,
@@ -13,8 +12,8 @@ export function useStateChangedRefetch(
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const socket = io(API_BASE_URL);
-    const onConnect = () => logger.info("socket connected", { url: API_BASE_URL, socketId: socket.id });
+    const socket = io(env.socketUrl);
+    const onConnect = () => logger.info("socket connected", { url: env.socketUrl, socketId: socket.id });
     const onConnectError = (error: unknown) => logger.warn("socket connect_error", { error });
 
     const onStateChanged = () => {

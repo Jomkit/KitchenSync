@@ -8,6 +8,7 @@ Backend uses Flask + Flask-SocketIO + SQLAlchemy + PostgreSQL. Frontend uses Vit
 
 - `AGENTS.md` contains non-negotiable architecture constraints and MVP rules.
 - `docs/proposal.md` is an early planning document and includes outdated stack notes in some sections. Use the codebase as the source of truth.
+- `docs/deploy-gcp.md` is the implementation-ready deployment runbook for Cloud Run + Cloud SQL + Scheduler + GitHub Actions.
 
 ## Repository Layout
 
@@ -21,6 +22,7 @@ Backend uses Flask + Flask-SocketIO + SQLAlchemy + PostgreSQL. Frontend uses Vit
 Implemented today:
 - Flask-SocketIO app with eventlet runtime (`backend/run.py`)
 - Health endpoint: `GET /health`
+- Health endpoint alias: `GET /healthz`
 - Auth endpoint: `POST /auth/login` (seeded users, JWT access token with role claim)
 - Protected examples: `GET /kitchen/overview`, `GET /foh/overview`, `GET /auth/me`
 - Menu endpoint: `GET /menu` (availability + low stock + deterministic reason)
@@ -32,6 +34,7 @@ Implemented today:
   - `POST /reservations/:id/release`
   - Reservation write endpoints are accessible to `online` and `foh` roles
 - Reservation expiration worker (`backend/app/reservation_expiration.py`): runs every 30s, expires active reservations, emits `stateChanged`
+- Internal expiry trigger: `POST /internal/expire_once` with `X-Internal-Secret`
 - Socket events:
   - broadcast: `stateChanged` (used by frontend refetch flow)
   - request/response: client `ping` -> server `pong`
@@ -156,6 +159,12 @@ Backend reads these values:
 - `JWT_SECRET_KEY` default: `dev-change-me`
 - `JWT_ALGORITHM` default: `HS256`
 - `JWT_ACCESS_TOKEN_TTL_MINUTES` default: `60`
+- `RESERVATION_TTL_SECONDS` default: `600`
+- `EXPIRATION_INTERVAL_SECONDS` default: `30`
+- `ENABLE_INPROCESS_EXPIRATION_JOB` default: `1` in local/dev, `0` in production/staging
+- `INTERNAL_EXPIRE_SECRET` required in production/staging (used by `POST /internal/expire_once`)
+- `CORS_ALLOWED_ORIGINS` default: `http://localhost:5173` (comma-separated)
+- `FRONTEND_DIST_DIR` default: `../frontend/dist`
 - `LOG_LEVEL` default: `INFO` (`DEBUG|INFO|WARNING|ERROR|CRITICAL`)
 
 Database URL resolution in `backend/config.py`:
@@ -209,7 +218,8 @@ Test DB:
 - Always run backend with `python run.py` (not `flask run`) so Socket.IO runs with eventlet.
 - No migrations are used in this MVP; schema is created via SQLAlchemy `create_all()`.
 - `backend/seed.py` resets backend tables (`drop_all()` then `create_all()`) before inserting sample data.
-- Frontend currently hardcodes backend URL to `http://localhost:5000` in `frontend/src/api/client.ts` and `frontend/src/realtime/useStateChangedRefetch.ts`.
+- Frontend API/socket defaults are `http://localhost:5000` when unset.
+- Frontend env values can be configured with `frontend/.env` (see `frontend/.env.example`).
 - `stateChanged` is the realtime broadcast event used for client refetch.
 - Frontend unit tests run via Vitest (`cd frontend && npm test`).
 - Frontend logging level can be controlled with `VITE_LOG_LEVEL` (`debug|info|warn|error`), defaulting to `debug` in dev and `warn` otherwise.

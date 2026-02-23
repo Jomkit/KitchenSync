@@ -58,6 +58,13 @@ def _env_log_level(name: str, default: str) -> str:
     return value
 
 
+def _env_csv(name: str, default: list[str]) -> list[str]:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def _build_database_url_from_parts(
     *,
     prefix: str,
@@ -143,11 +150,29 @@ class Settings:
     jwt_secret_key: str
     jwt_algorithm: str
     jwt_access_token_ttl_minutes: int
+    reservation_ttl_seconds: int
+    expiration_interval_seconds: int
+    enable_inprocess_expiration_job: bool
+    internal_expire_secret: str
+    cors_allowed_origins: list[str]
+    frontend_dist_dir: str
     log_level: str
 
     @classmethod
     def from_env(cls) -> "Settings":
         app_env = os.getenv("APP_ENV", "development").lower()
+        internal_expire_secret = os.getenv("INTERNAL_EXPIRE_SECRET")
+        if app_env in {"production", "staging"} and not internal_expire_secret:
+            raise RuntimeError(
+                "INTERNAL_EXPIRE_SECRET is required in production/staging."
+            )
+
+        frontend_dist_dir = os.getenv(
+            "FRONTEND_DIST_DIR",
+            str(Path(__file__).resolve().parent.parent / "frontend" / "dist"),
+        )
+        default_origins = ["*"] if app_env in {"production", "staging"} else ["http://localhost:5173"]
+
         return cls(
             app_env=app_env,
             host=os.getenv("HOST", "0.0.0.0"),
@@ -157,6 +182,15 @@ class Settings:
             jwt_secret_key=os.getenv("JWT_SECRET_KEY", "dev-change-me"),
             jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
             jwt_access_token_ttl_minutes=_env_int("JWT_ACCESS_TOKEN_TTL_MINUTES", 60),
+            reservation_ttl_seconds=_env_int("RESERVATION_TTL_SECONDS", 600),
+            expiration_interval_seconds=_env_int("EXPIRATION_INTERVAL_SECONDS", 30),
+            enable_inprocess_expiration_job=_env_bool(
+                "ENABLE_INPROCESS_EXPIRATION_JOB",
+                app_env not in {"production", "staging"},
+            ),
+            internal_expire_secret=internal_expire_secret or "dev-internal-secret",
+            cors_allowed_origins=_env_csv("CORS_ALLOWED_ORIGINS", default_origins),
+            frontend_dist_dir=frontend_dist_dir,
             log_level=_env_log_level("LOG_LEVEL", "INFO"),
         )
 

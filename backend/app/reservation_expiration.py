@@ -12,7 +12,7 @@ from app.models import Reservation
 from config import settings
 from db import SessionLocal
 
-EXPIRATION_INTERVAL_SECONDS = 30
+EXPIRATION_INTERVAL_SECONDS = settings.expiration_interval_seconds
 _expiration_job_started = False
 logger = logging.getLogger("kitchensync.reservation_expiration")
 
@@ -45,12 +45,14 @@ def expire_reservations_once_and_emit(now: datetime | None = None) -> int:
     expired_count = expire_reservations_once(now=now)
     if expired_count > 0:
         socketio.emit("stateChanged")
-        logger.info("expire_reservations emitted state_changed expired_count=%s", expired_count)
+    logger.info("expire_reservations_once completed expired_count=%s", expired_count)
     return expired_count
 
 
 def _should_start_expiration_job() -> bool:
     if settings.app_env == "test":
+        return False
+    if not settings.enable_inprocess_expiration_job:
         return False
     if settings.flask_debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         return False

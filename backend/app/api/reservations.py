@@ -11,12 +11,13 @@ from sqlalchemy import delete, func, select
 from app import socketio
 from app.auth import require_any_role
 from app.models import Ingredient, MenuItem, Recipe, Reservation, ReservationIngredient, ReservationItem
+from config import settings
 from db import SessionLocal
 
 reservations_bp = Blueprint("reservations", __name__)
 logger = logging.getLogger("kitchensync.api.reservations")
 
-RESERVATION_TTL_MINUTES = 10
+RESERVATION_TTL_SECONDS = settings.reservation_ttl_seconds
 
 
 def _utc_now() -> datetime:
@@ -97,7 +98,7 @@ def create_reservation() -> tuple[dict[str, Any], int]:
     logger.info("create_reservation start user_id=%s item_count=%s", user_id, len(normalized_items))
 
     now = _utc_now()
-    expires_at = now + timedelta(minutes=RESERVATION_TTL_MINUTES)
+    expires_at = now + timedelta(seconds=RESERVATION_TTL_SECONDS)
     menu_item_ids = [item["menu_item_id"] for item in normalized_items]
     requested_qty_by_menu_item = {
         item["menu_item_id"]: item["qty"] for item in normalized_items
@@ -242,7 +243,7 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
         return jsonify(body), status_code
 
     now = _utc_now()
-    expires_at = now + timedelta(minutes=RESERVATION_TTL_MINUTES)
+    expires_at = now + timedelta(seconds=RESERVATION_TTL_SECONDS)
     menu_item_ids = [item["menu_item_id"] for item in normalized_items]
     requested_qty_by_menu_item = {
         item["menu_item_id"]: item["qty"] for item in normalized_items

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help db-up db-down db-logs db-reset db-cli test-db-up test-db-down test-db-logs test-db-reset test-db-cli seed test-seed backend-dev frontend-dev test clean
+.PHONY: help db-up db-down db-logs db-reset db-cli test-db-up test-db-down test-db-logs test-db-reset test-db-cli seed test-seed backend-dev test-backend-dev frontend-dev test clean
 
 help:
 	@echo "Usage: make <target>"
@@ -18,6 +18,7 @@ help:
 	@echo "  seed           Seed development database (APP_ENV=development)"
 	@echo "  test-seed      Seed test database (APP_ENV=test)"
 	@echo "  backend-dev    Run backend dev server"
+	@echo "  test-backend-dev Run backend against test database (APP_ENV=test)"
 	@echo "  frontend-dev   Run frontend dev server"
 	@echo "  test           Run backend tests (assumes db_test is up)"
 	@echo "  clean          Remove Python/Frontend build cache artifacts"
@@ -66,6 +67,9 @@ test-seed:
 
 backend-dev:
 	cd backend && python run.py
+
+test-backend-dev:
+	cd backend && APP_ENV=test python run.py
 
 frontend-dev:
 	cd frontend && npm run dev
