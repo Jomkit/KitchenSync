@@ -47,6 +47,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const [alert, setAlert] = useState("");
   const timerRef = useRef<number | null>(null);
   const reservingTimerRef = useRef<number | null>(null);
+  const menuRef = useRef<MenuItem[]>([]);
 
   const loadMenu = useCallback(async () => {
     const response = await apiFetch("/menu");
@@ -59,6 +60,10 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   }, [loadMenu]);
 
   useStateChangedRefetch(loadMenu);
+
+  useEffect(() => {
+    menuRef.current = menu;
+  }, [menu]);
 
   const maxQtyByMenuItem = useMemo(() => {
     const limits: Record<number, number> = {};
@@ -76,11 +81,11 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const cartCount = items.reduce((total, item) => total + item.qty, 0);
 
   const mapConflictLine = useCallback((ingredientName: string): string => {
-    const matched = [...menu]
+    const matched = [...menuRef.current]
       .sort((a, b) => a.id - b.id)
       .find((item) => item.reason?.toLowerCase().includes(ingredientName.toLowerCase()));
     return `[${matched?.name || "Item"}] sold-out: insufficient ${ingredientName}`;
-  }, [menu]);
+  }, []);
 
   useEffect(() => {
     if (timerRef.current) {
