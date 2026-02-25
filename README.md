@@ -81,6 +81,7 @@ Implemented today:
   - `/online` (ordering/cart flow for online and foh users with item pricing, subtotal, fixed tax, optional tip, and final total)
   - `/menu` (non-interactive menu board for all authenticated users)
   - `/online/confirmed` (post-checkout confirmation with itemized receipt, subtotal, tax, tip, and final total)
+  - `*` (custom frontend 404 page for unknown routes)
 - Backend tests under `backend/tests/` for reservation correctness, concurrency, expiration, and availability serialization
 
 ### Online Pricing And Receipt Behavior (Current)
@@ -94,6 +95,22 @@ Implemented today:
 - Tip presets include math indicators so users can see computed tip amounts before selecting.
 - After successful checkout, `/online/confirmed` shows an itemized receipt and totals breakdown.
 - Receipt persistence is frontend-session scoped (route state + `sessionStorage`) and is not server-authoritative or durable.
+
+### Error Handling (Current)
+
+- Backend now includes request-scoped IDs for API observability:
+  - every request is assigned a `request_id`
+  - response header includes `X-Request-Id`
+- API error responses are standardized to include:
+  - `error` (human-readable message)
+  - `code` (machine-readable identifier)
+  - `request_id` (for log correlation)
+- Global backend error handlers return JSON for API paths, including unhandled exceptions (`500`) and unknown API routes (`404`).
+- Frontend includes:
+  - custom Not Found page for unmatched client routes
+  - global React error boundary with a fallback crash page for unexpected render/runtime failures
+  - improved async error handling in critical pages (`/online`, kitchen, FOH, menu, landing)
+- For auth/session failures during ordering (`/online`), UI shows an inline message, performs safe cleanup, and redirects to landing.
 
 ## Current MVP Database Schema
 
