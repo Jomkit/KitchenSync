@@ -80,6 +80,9 @@ Reservation requirements:
 - Reservation write flows are available to `online` and `foh` roles
 - Must support reservation status values: active, committed, released, expired
 - Default TTL: 10 minutes
+- FOH may adjust runtime reservation TTL between 1 and 15 minutes for demo operations
+- FOH may adjust TTL warning threshold between 5 and 120 seconds for demo operations
+- Ordering roles (`online` and `foh`) should see TTL warning state in the pill (red + auto-open at threshold)
 - Expiration job runs in-process every ~30 seconds
 
 Expiration must:

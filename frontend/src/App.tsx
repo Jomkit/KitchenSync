@@ -1,6 +1,7 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { clearAuth, getCurrentUser, type UserRole } from "./auth/token";
+import { ReservationExpiryPill } from "./components/ReservationExpiryPill";
 import { LandingPage, LandingPageContent } from "./pages/LandingPage";
 import { KitchenPage } from "./pages/KitchenPage";
 import { FohPage } from "./pages/FohPage";
@@ -55,6 +56,7 @@ function Shell({ children, role, email }: { children: JSX.Element; role: UserRol
 
   return (
     <main className="min-h-screen bg-slate-100 p-4 text-slate-900">
+      {role ? <ReservationExpiryPill role={role} /> : null}
       <div className="mx-auto max-w-6xl space-y-4">
         <nav className="flex items-center gap-2 rounded bg-white p-3 shadow">
           <NavLink to="/?landing=1" className={navItemClass}>

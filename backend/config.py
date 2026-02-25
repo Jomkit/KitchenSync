@@ -151,6 +151,7 @@ class Settings:
     jwt_algorithm: str
     jwt_access_token_ttl_minutes: int
     reservation_ttl_seconds: int
+    reservation_warning_threshold_seconds: int
     expiration_interval_seconds: int
     enable_inprocess_expiration_job: bool
     internal_expire_secret: str
@@ -172,6 +173,11 @@ class Settings:
             str(Path(__file__).resolve().parent.parent / "frontend" / "dist"),
         )
         default_origins = ["*"] if app_env in {"production", "staging"} else ["http://localhost:5173"]
+        warning_threshold_seconds = _env_int("RESERVATION_WARNING_THRESHOLD_SECONDS", 30)
+        if warning_threshold_seconds < 5 or warning_threshold_seconds > 120:
+            raise RuntimeError(
+                "Environment variable RESERVATION_WARNING_THRESHOLD_SECONDS must be between 5 and 120"
+            )
 
         return cls(
             app_env=app_env,
@@ -183,6 +189,7 @@ class Settings:
             jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
             jwt_access_token_ttl_minutes=_env_int("JWT_ACCESS_TOKEN_TTL_MINUTES", 60),
             reservation_ttl_seconds=_env_int("RESERVATION_TTL_SECONDS", 600),
+            reservation_warning_threshold_seconds=warning_threshold_seconds,
             expiration_interval_seconds=_env_int("EXPIRATION_INTERVAL_SECONDS", 30),
             enable_inprocess_expiration_job=_env_bool(
                 "ENABLE_INPROCESS_EXPIRATION_JOB",

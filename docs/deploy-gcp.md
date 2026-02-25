@@ -10,7 +10,7 @@ This document is the implementation-ready plan for deploying KitchenSync as a st
   - `DATABASE_URL` (preferred) or `DB_*` / `TEST_DB_*`
   - `APP_ENV`, `HOST`, `PORT`, `FLASK_DEBUG`, `LOG_LEVEL`
   - `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_ACCESS_TOKEN_TTL_MINUTES`
-  - Added for deployment: `INTERNAL_EXPIRE_SECRET`, `ENABLE_INPROCESS_EXPIRATION_JOB`, `RESERVATION_TTL_SECONDS`, `EXPIRATION_INTERVAL_SECONDS`, `CORS_ALLOWED_ORIGINS`, `FRONTEND_DIST_DIR`
+  - Added for deployment: `INTERNAL_EXPIRE_SECRET`, `ENABLE_INPROCESS_EXPIRATION_JOB`, `RESERVATION_TTL_SECONDS`, `RESERVATION_WARNING_THRESHOLD_SECONDS`, `EXPIRATION_INTERVAL_SECONDS`, `CORS_ALLOWED_ORIGINS`, `FRONTEND_DIST_DIR`
 - DB config model: full SQLAlchemy URL from `DATABASE_URL` preferred, otherwise built from split vars in `backend/config.py`. Expected format is SQLAlchemy URL (example: `postgresql+psycopg2://user:pass@host:5432/dbname`).
 - Socket.IO initialization/serving:
   - Global `socketio = SocketIO(...)` in `backend/app/__init__.py`
@@ -23,7 +23,7 @@ This document is the implementation-ready plan for deploying KitchenSync as a st
 - Flask static serving before changes: no.
 - Flask static serving now: yes (serves `FRONTEND_DIST_DIR`, default `../frontend/dist`, with SPA fallback).
 - Frontend API/socket URL before changes: hardcoded `http://localhost:5000`.
-- Frontend API/socket URL defaults to `http://localhost:5000`; override with `VITE_API_BASE_URL` / `VITE_SOCKET_URL` for deployed environments.
+- Frontend API/socket URL defaults are same-origin in deployed builds (CI passes empty `VITE_API_BASE_URL` and `VITE_SOCKET_URL` build args).
 - `seed.py` location/behavior:
   - Location: `backend/seed.py`
   - It runs `Base.metadata.drop_all(bind=engine)` then `create_all()`.
@@ -184,7 +184,7 @@ gcloud run jobs create kitchensync-seed \
   --service-account="${RUNTIME_SA}" \
   --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
   --set-env-vars="APP_ENV=production" \
-  --set-secrets="DATABASE_URL=DATABASE_URL:latest" \
+  --set-secrets="DATABASE_URL=DATABASE_URL:latest,INTERNAL_EXPIRE_SECRET=INTERNAL_EXPIRE_SECRET:latest" \
   --command="python" \
   --args="seed.py"
 ```
@@ -317,6 +317,15 @@ TTL expiry:
 
 - Create reservation, wait slightly over 60 seconds, confirm reservation no longer counted as active hold.
 - Check Cloud Run logs for `expire_reservations_once completed expired_count=...`.
+
+FOH runtime TTL + timer UX:
+
+- As FOH, verify `PATCH /admin/reservation-ttl` works with TTL values 1-15 minutes.
+- As FOH, verify warning threshold can be updated via `PATCH /admin/reservation-ttl` with `warning_threshold_seconds` values 5-120.
+- As FOH and online users, verify `GET /admin/reservation-ttl` returns current runtime TTL and warning threshold.
+- Confirm floating `TTL` pill appears on authenticated pages when an active reservation exists.
+- Confirm hover opens transparent timer panel and click pins it open with solid styling.
+- Confirm ordering-role warning behavior (`online` + `foh`): pill turns red and auto-opens when remaining time is at/below warning threshold.
 
 CI deploy:
 

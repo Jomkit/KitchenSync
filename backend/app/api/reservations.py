@@ -11,13 +11,11 @@ from sqlalchemy import delete, func, select
 from app import socketio
 from app.auth import require_any_role
 from app.models import Ingredient, MenuItem, Recipe, Reservation, ReservationIngredient, ReservationItem
-from config import settings
+from app.runtime_reservation_ttl import get_runtime_ttl_seconds
 from db import SessionLocal
 
 reservations_bp = Blueprint("reservations", __name__)
 logger = logging.getLogger("kitchensync.api.reservations")
-
-RESERVATION_TTL_SECONDS = settings.reservation_ttl_seconds
 
 
 def _utc_now() -> datetime:
@@ -98,7 +96,7 @@ def create_reservation() -> tuple[dict[str, Any], int]:
     logger.info("create_reservation start user_id=%s item_count=%s", user_id, len(normalized_items))
 
     now = _utc_now()
-    expires_at = now + timedelta(seconds=RESERVATION_TTL_SECONDS)
+    expires_at = now + timedelta(seconds=get_runtime_ttl_seconds())
     menu_item_ids = [item["menu_item_id"] for item in normalized_items]
     requested_qty_by_menu_item = {
         item["menu_item_id"]: item["qty"] for item in normalized_items
@@ -243,7 +241,7 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
         return jsonify(body), status_code
 
     now = _utc_now()
-    expires_at = now + timedelta(seconds=RESERVATION_TTL_SECONDS)
+    expires_at = now + timedelta(seconds=get_runtime_ttl_seconds())
     menu_item_ids = [item["menu_item_id"] for item in normalized_items]
     requested_qty_by_menu_item = {
         item["menu_item_id"]: item["qty"] for item in normalized_items
@@ -544,3 +542,26 @@ def release_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
         socketio.emit("stateChanged")
     logger.info("release_reservation success reservation_id=%s status=%s", reservation_id, response_body["status"])
     return jsonify(response_body), 200
+
+
+@reservations_bp.get("/reservations/<int:reservation_id>")
+@require_any_role("online", "foh")
+def get_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
+    with SessionLocal() as session:
+        reservation = session.execute(
+            select(Reservation).where(Reservation.id == reservation_id)
+        ).scalar_one_or_none()
+
+    if reservation is None:
+        return jsonify({"error": "Reservation not found"}), 404
+
+    return (
+        jsonify(
+            {
+                "id": reservation.id,
+                "status": reservation.status,
+                "expires_at": reservation.expires_at.isoformat(),
+            }
+        ),
+        200,
+    )
