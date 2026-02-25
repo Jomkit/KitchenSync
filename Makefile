@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help db-up db-down db-logs db-reset db-cli test-db-up test-db-down test-db-logs test-db-reset test-db-cli seed test-seed backend-dev test-backend-dev frontend-dev test clean
+.PHONY: help db-up db-down db-logs db-reset db-cli test-db-up test-db-down test-db-logs test-db-reset test-db-cli seed test-seed backend-dev test-backend-dev frontend-dev backend-test frontend-test test clean
 
 help:
 	@echo "Usage: make <target>"
@@ -20,7 +20,9 @@ help:
 	@echo "  backend-dev    Run backend dev server"
 	@echo "  test-backend-dev Run backend against test database (APP_ENV=test)"
 	@echo "  frontend-dev   Run frontend dev server"
-	@echo "  test           Run backend tests (assumes db_test is up)"
+	@echo "  backend-test   Run backend tests (assumes db_test is up)"
+	@echo "  frontend-test  Run frontend tests"
+	@echo "  test           Alias for backend-test"
 	@echo "  clean          Remove Python/Frontend build cache artifacts"
 
 db-up:
@@ -74,8 +76,13 @@ test-backend-dev:
 frontend-dev:
 	cd frontend && npm run dev
 
-test:
+backend-test:
 	cd backend && pytest -qv
+
+frontend-test:
+	cd frontend && npm test
+
+test: backend-test
 
 clean:
 	find backend -type d -name '__pycache__' -prune -exec rm -rf {} +

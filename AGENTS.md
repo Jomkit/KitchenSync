@@ -172,3 +172,29 @@ PRs should include:
 - Must use `socketio.run(app)`, not `app.run()`.
 - Expiration job must not start twice under debug reloader.
 - Only emit `stateChanged` as a broadcast state update event; keep `ping -> pong` limited to connectivity checks.
+
+## Current Production Configuration
+
+This section documents the current deployed shape and must stay aligned with `.github/workflows/deploy.yml` and `docs/deploy-gcp.md`.
+
+Production hosting/runtime:
+- Deployed on Google Cloud Run as a single container for backend API, Socket.IO, and static frontend assets.
+- Backend runs via `python run.py` with eventlet and binds to Cloud Run `PORT` (currently `8080`).
+- `ENABLE_INPROCESS_EXPIRATION_JOB` is disabled in production (`0`) because expiry sweeps are triggered externally.
+
+Production GCP services currently used:
+- Cloud Run (runtime service)
+- Cloud SQL for PostgreSQL (attached via `--set-cloudsql-instances`)
+- Artifact Registry (container image storage)
+- Secret Manager (`DATABASE_URL`, `JWT_SECRET_KEY`, `INTERNAL_EXPIRE_SECRET`)
+- Cloud Scheduler (calls `POST /internal/expire_once`)
+- IAM + Workload Identity Federation for GitHub Actions OIDC authentication
+
+Current CI/CD stages:
+- `test`: runs backend and frontend tests on PRs to `main` and pushes to `main`
+- `build`: runs only on pushes to `main`; builds frontend artifacts and builds/pushes container image
+- `deploy`: runs only on pushes to `main`; deploys built image to Cloud Run
+
+Production frontend build behavior:
+- Build must force same-origin by setting `VITE_API_BASE_URL=""` and `VITE_SOCKET_URL=""` in CI.
+- Do not rely on local `frontend/.env` defaults for production builds.

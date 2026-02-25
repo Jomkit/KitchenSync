@@ -17,6 +17,27 @@ Backend uses Flask + Flask-SocketIO + SQLAlchemy + PostgreSQL. Frontend uses Vit
 - `docs/` planning notes
 - `Makefile` root shortcuts for local development
 
+## Production Configuration (Current)
+
+- Platform: Google Cloud Run (single service for API + Socket.IO + static frontend)
+- Container image: Google Artifact Registry (`${GCP_REGION}-docker.pkg.dev/...`)
+- Database: Cloud SQL for PostgreSQL (attached via Cloud Run `--set-cloudsql-instances`)
+- Secrets: Google Secret Manager (`DATABASE_URL`, `JWT_SECRET_KEY`, `INTERNAL_EXPIRE_SECRET`)
+- Scheduler: Cloud Scheduler calls `POST /internal/expire_once` for reservation expiry sweeps
+- CI/CD auth: GitHub Actions OIDC Workload Identity Federation (no static service-account key in repo)
+
+Current GitHub Actions pipeline (`.github/workflows/deploy.yml`):
+- `test` job: backend + frontend tests on PRs and main pushes
+- `build` job: main-push only; builds frontend assets, builds/pushes image to Artifact Registry
+- `deploy` job: main-push only; deploys previously built image to Cloud Run
+
+Current runtime configuration in production:
+- `APP_ENV=production`
+- `ENABLE_INPROCESS_EXPIRATION_JOB=0` (expiry handled by scheduler endpoint)
+- `PORT=8080` on Cloud Run
+- Frontend build uses same-origin API/socket (`VITE_API_BASE_URL=""`, `VITE_SOCKET_URL=""`)
+- Cloud Run deploy sets `--max-instances=1`, `--memory=1Gi`, `--timeout=900`
+
 ## Current Implementation Status
 
 Implemented today:
@@ -29,7 +50,7 @@ Implemented today:
 - Ingredients endpoints: `GET /ingredients`, `PATCH /ingredients/:id` (kitchen role)
 - Reservation endpoints:
   - `POST /reservations`
-  - `GET /reservations/:id`
+  - `GET /reservations/:id` (returns `id`, `status`, `expires_at`, and `items`)
   - `PATCH /reservations/:id`
   - `POST /reservations/:id/commit`
   - `POST /reservations/:id/release`
@@ -226,7 +247,9 @@ Test DB:
 - `make test-seed` (seeds test DB using the same `backend/seed.py`)
 - `make backend-dev`
 - `make frontend-dev`
-- `make test` (runs `pytest -qv` in `backend/`)
+- `make backend-test` (runs `pytest -qv` in `backend/`)
+- `make frontend-test` (runs frontend Vitest suite)
+- `make test` (alias for `make backend-test`)
 - `make clean`
 
 ## Development Notes
