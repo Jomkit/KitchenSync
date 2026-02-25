@@ -108,7 +108,7 @@ describe("Phase 10 routing and online behavior", () => {
       </MemoryRouter>
     );
 
-    await screen.findByText("Pizza");
+    await screen.findByRole("button", { name: "Add Pizza" });
     await user.click(screen.getByRole("button", { name: "Add Pizza" }));
 
     await waitFor(() => {
@@ -256,6 +256,116 @@ describe("Phase 10 routing and online behavior", () => {
     );
     await user.click(screen.getByRole("button", { name: "Online" }));
     expect(await screen.findByRole("heading", { name: "Online ordering" })).toBeInTheDocument();
+  });
+
+  it("shows Active Order nav link for online users and returns to /online from menu", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("accessToken", makeToken("online"));
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/menu")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/menu"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    const activeOrderLink = await screen.findByRole("link", { name: "Active Order" });
+    await user.click(activeOrderLink);
+    expect(await screen.findByRole("heading", { name: "Online ordering" })).toBeInTheDocument();
+  });
+
+  it("shows Active Order nav link for foh users and returns to /online from menu", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("accessToken", makeToken("foh"));
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/menu")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (url.includes("/admin/reservation-ttl")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ttl_seconds: 600,
+              ttl_minutes: 10,
+              min_minutes: 1,
+              max_minutes: 15,
+              warning_threshold_seconds: 30,
+              warning_min_seconds: 5,
+              warning_max_seconds: 120,
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/menu"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    const activeOrderLink = await screen.findByRole("link", { name: "Active Order" });
+    await user.click(activeOrderLink);
+    expect(await screen.findByRole("heading", { name: "FOH ordering" })).toBeInTheDocument();
+  });
+
+  it("hydrates cart from existing active reservation without sending immediate PATCH", async () => {
+    localStorage.setItem("accessToken", makeToken("online"));
+    localStorage.setItem("activeReservationId", "123");
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/menu")) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ id: 1, name: "Pizza", available: true, max_qty_available: 10 }]), { status: 200 })
+        );
+      }
+      if (url.includes("/reservations/123") && !init?.method) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 123,
+              status: "active",
+              expires_at: new Date(Date.now() + 600_000).toISOString(),
+              items: [{ menu_item_id: 1, qty: 2, notes: null }],
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      if (url.includes("/reservations/123") && init?.method === "PATCH") {
+        return Promise.resolve(new Response(JSON.stringify({ id: 123, status: "active" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/online"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    await screen.findByRole("button", { name: "Add Pizza" });
+    expect(await screen.findByRole("button", { name: "Decrease Pizza" })).toBeInTheDocument();
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const patchCalls = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = String(input);
+      const request = init as RequestInit | undefined;
+      return url.includes("/reservations/123") && request?.method === "PATCH";
+    });
+    expect(patchCalls).toHaveLength(0);
   });
 
   it("auto-opens and turns red for foh when remaining time hits warning threshold", async () => {

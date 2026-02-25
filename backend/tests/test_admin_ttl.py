@@ -70,7 +70,7 @@ def test_non_foh_cannot_update_ttl(app_client) -> None:
     assert response.status_code == 403
 
 
-def test_get_reservation_returns_status_and_expires_at(app_client) -> None:
+def test_get_reservation_returns_status_expires_at_and_items(app_client) -> None:
     set_runtime_ttl_seconds(settings.reservation_ttl_seconds)
     set_runtime_warning_threshold_seconds(settings.reservation_warning_threshold_seconds)
     menu_item_id = _create_simple_menu_item()
@@ -93,6 +93,7 @@ def test_get_reservation_returns_status_and_expires_at(app_client) -> None:
     assert body["id"] == reservation_id
     assert body["status"] == "active"
     assert isinstance(body["expires_at"], str)
+    assert body["items"] == [{"menu_item_id": menu_item_id, "qty": 1, "notes": None}]
 
 
 def test_foh_can_update_warning_threshold_seconds(app_client) -> None:

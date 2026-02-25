@@ -51,6 +51,7 @@ function Shell({ children, role, email }: { children: JSX.Element; role: UserRol
   const navigate = useNavigate();
   const roleLabel = role === "kitchen" ? "Kitchen" : role === "foh" ? "FOH" : "Online";
   const isStaff = role === "kitchen" || role === "foh";
+  const canAccessOnlineOrdering = role === "online" || role === "foh";
   const navItemClass = ({ isActive }: { isActive: boolean }) =>
     `rounded px-3 py-1 text-sm ${isActive ? "bg-slate-200 font-medium" : "text-slate-700 hover:bg-slate-100"}`;
 
@@ -75,7 +76,11 @@ function Shell({ children, role, email }: { children: JSX.Element; role: UserRol
           <NavLink to="/menu" className={navItemClass}>
             Menu
           </NavLink>
-          {role === "online" ? <span className="text-sm">Online</span> : null}
+          {canAccessOnlineOrdering ? (
+            <NavLink to="/online" className={navItemClass}>
+              Active Order
+            </NavLink>
+          ) : null}
           {isStaff ? (
             <span className="text-sm text-slate-600">
               Logged in as {email || "staff"} ({roleLabel})
@@ -123,7 +128,7 @@ export function AppRoutes() {
         element={
           <ProtectedRoute allow={["kitchen", "foh"]} role={role}>
             <Shell role={role} email={email}>
-              <FohPage />
+              <FohPage role={role} />
             </Shell>
           </ProtectedRoute>
         }

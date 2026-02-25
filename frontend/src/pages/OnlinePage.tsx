@@ -31,16 +31,7 @@ type ReservationSnapshot = {
   id: number;
   status: ReservationStatus;
   expires_at: string;
-};
-
-type ReservationTtlPayload = {
-  ttl_seconds: number;
-  ttl_minutes: number;
-  min_minutes: number;
-  max_minutes: number;
-  warning_threshold_seconds: number;
-  warning_min_seconds: number;
-  warning_max_seconds: number;
+  items?: CartItem[];
 };
 
 function getItemMaxQty(item: MenuItem): number {
@@ -48,6 +39,19 @@ function getItemMaxQty(item: MenuItem): number {
     return Math.max(0, item.max_qty_available);
   }
   return Number.MAX_SAFE_INTEGER;
+}
+
+function buildCartFromReservationItems(items: CartItem[] | undefined): Record<number, number> {
+  if (!items || items.length === 0) {
+    return {};
+  }
+  const nextCart: Record<number, number> = {};
+  for (const item of items) {
+    if (item.qty > 0) {
+      nextCart[item.menu_item_id] = item.qty;
+    }
+  }
+  return nextCart;
 }
 
 export function OnlinePage({ role }: { role: UserRole | null }) {
@@ -66,11 +70,6 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const [isSyncingReservation, setIsSyncingReservation] = useState(false);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [alert, setAlert] = useState("");
-  const [ttlInfo, setTtlInfo] = useState<ReservationTtlPayload | null>(null);
-  const [ttlMinutes, setTtlMinutes] = useState<number>(10);
-  const [warningThresholdSeconds, setWarningThresholdSeconds] = useState<number>(30);
-  const [ttlError, setTtlError] = useState("");
-  const [isSavingTtl, setIsSavingTtl] = useState(false);
   const [isExpiryCleanupPending, setIsExpiryCleanupPending] = useState(false);
   const [expiryCleanupMessage, setExpiryCleanupMessage] = useState("");
   const [cleanupTargetReservationId, setCleanupTargetReservationId] = useState<string | null>(null);
@@ -79,6 +78,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const expiryCleanupIntervalRef = useRef<number | null>(null);
   const expiryCleanupCheckInFlightRef = useRef(false);
   const handledEndedReservationIdRef = useRef<string | null>(null);
+  const skipNextReservationSyncRef = useRef(false);
   const menuRef = useRef<MenuItem[]>([]);
 
   const clearActiveReservation = useCallback(() => {
@@ -124,29 +124,9 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     setMenu(data);
   }, []);
 
-  const loadTtlInfo = useCallback(async () => {
-    if (!isFohFlow) {
-      return;
-    }
-    const response = await apiFetch("/admin/reservation-ttl");
-    if (!response.ok) {
-      setTtlError("Unable to load reservation TTL.");
-      return;
-    }
-    const body = (await response.json()) as ReservationTtlPayload;
-    setTtlInfo(body);
-    setTtlMinutes(body.ttl_minutes);
-    setWarningThresholdSeconds(body.warning_threshold_seconds ?? 30);
-    setTtlError("");
-  }, [isFohFlow]);
-
   useEffect(() => {
     void loadMenu();
   }, [loadMenu]);
-
-  useEffect(() => {
-    void loadTtlInfo();
-  }, [loadTtlInfo]);
 
   useStateChangedRefetch(loadMenu);
 
@@ -159,6 +139,49 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  useEffect(() => {
+    if (!activeReservationId) {
+      return;
+    }
+
+    let cancelled = false;
+    const hydrateFromReservation = async () => {
+      const response = await apiFetch(`/reservations/${activeReservationId}`);
+      if (cancelled) {
+        return;
+      }
+      if (response.status === 404) {
+        handleReservationEnded("missing", activeReservationId);
+        return;
+      }
+      if (!response.ok) {
+        return;
+      }
+
+      const snapshot = (await response.json()) as ReservationSnapshot;
+      if (cancelled) {
+        return;
+      }
+      if (snapshot.status !== "active") {
+        if (snapshot.status === "expired") {
+          handleReservationEnded("expired", activeReservationId);
+          await loadMenu();
+          return;
+        }
+        handleReservationEnded("released", activeReservationId);
+        return;
+      }
+
+      skipNextReservationSyncRef.current = true;
+      setCart(buildCartFromReservationItems(snapshot.items));
+    };
+
+    void hydrateFromReservation();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeReservationId, handleReservationEnded, loadMenu]);
 
   const checkReservationStatus = useCallback(async (reservationId: string): Promise<ReservationStatus | "missing" | "error"> => {
     const response = await apiFetch(`/reservations/${reservationId}`);
@@ -277,6 +300,11 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   useEffect(() => {
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
+    }
+
+    if (skipNextReservationSyncRef.current) {
+      skipNextReservationSyncRef.current = false;
+      return;
     }
 
     if (items.length === 0) {
@@ -464,82 +492,9 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     navigate("/");
   };
 
-  const updateTtl = async () => {
-    if (!ttlInfo) {
-      return;
-    }
-    setIsSavingTtl(true);
-    setTtlError("");
-    try {
-      const response = await apiFetch("/admin/reservation-ttl", {
-        method: "PATCH",
-        body: JSON.stringify({
-          ttl_minutes: ttlMinutes,
-          warning_threshold_seconds: warningThresholdSeconds,
-        }),
-      });
-      if (!response.ok) {
-        const errorBody = (await response.json()) as { error?: string };
-        setTtlError(errorBody.error || "Unable to update TTL.");
-        return;
-      }
-      const body = (await response.json()) as ReservationTtlPayload;
-      setTtlInfo(body);
-      setTtlMinutes(body.ttl_minutes);
-      setWarningThresholdSeconds(body.warning_threshold_seconds ?? warningThresholdSeconds);
-    } finally {
-      setIsSavingTtl(false);
-    }
-  };
-
   return (
     <section className="relative pb-20">
       <h1 className="mb-3 text-xl font-bold">{pageTitle}</h1>
-      {isFohFlow ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded bg-white p-2 shadow-sm">
-          <p className="text-sm font-medium">
-            Reservation TTL:
-            {" "}
-            {ttlInfo ? `${ttlInfo.ttl_minutes} min` : "--"}
-          </p>
-          <p className="text-sm font-medium">
-            Warning threshold:
-            {" "}
-            {ttlInfo ? `${ttlInfo.warning_threshold_seconds}s` : "--"}
-          </p>
-          <label className="text-sm" htmlFor="ttl-minutes-select">Set to</label>
-          <select
-            id="ttl-minutes-select"
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
-            value={ttlMinutes}
-            onChange={(event) => setTtlMinutes(Number(event.target.value))}
-          >
-            {Array.from({ length: 15 }, (_, index) => index + 1).map((value) => (
-              <option key={value} value={value}>{value} min</option>
-            ))}
-          </select>
-          <label className="text-sm" htmlFor="warning-threshold-select">Warn at</label>
-          <select
-            id="warning-threshold-select"
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
-            value={warningThresholdSeconds}
-            onChange={(event) => setWarningThresholdSeconds(Number(event.target.value))}
-          >
-            {Array.from({ length: 116 }, (_, index) => index + 5).map((value) => (
-              <option key={value} value={value}>{value}s</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="rounded bg-slate-800 px-3 py-1 text-sm text-white disabled:cursor-not-allowed disabled:bg-slate-400"
-            disabled={isSavingTtl}
-            onClick={() => void updateTtl()}
-          >
-            {isSavingTtl ? "Saving..." : "Apply TTL"}
-          </button>
-          {ttlError ? <p className="text-sm text-red-600">{ttlError}</p> : null}
-        </div>
-      ) : null}
       {alert ? <p className="mb-2 rounded bg-yellow-100 p-2 text-sm">{alert}</p> : null}
       {isExpiryCleanupPending ? (
         <div className="absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/30">

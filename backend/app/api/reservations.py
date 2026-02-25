@@ -551,6 +551,11 @@ def get_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
         reservation = session.execute(
             select(Reservation).where(Reservation.id == reservation_id)
         ).scalar_one_or_none()
+        reservation_items = session.execute(
+            select(ReservationItem)
+            .where(ReservationItem.reservation_id == reservation_id)
+            .order_by(ReservationItem.menu_item_id.asc())
+        ).scalars().all()
 
     if reservation is None:
         return jsonify({"error": "Reservation not found"}), 404
@@ -561,6 +566,14 @@ def get_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
                 "id": reservation.id,
                 "status": reservation.status,
                 "expires_at": reservation.expires_at.isoformat(),
+                "items": [
+                    {
+                        "menu_item_id": item.menu_item_id,
+                        "qty": item.qty,
+                        "notes": item.notes,
+                    }
+                    for item in reservation_items
+                ],
             }
         ),
         200,
