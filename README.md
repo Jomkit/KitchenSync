@@ -29,10 +29,18 @@ Implemented today:
 - Ingredients endpoints: `GET /ingredients`, `PATCH /ingredients/:id` (kitchen role)
 - Reservation endpoints:
   - `POST /reservations`
+  - `GET /reservations/:id`
   - `PATCH /reservations/:id`
   - `POST /reservations/:id/commit`
   - `POST /reservations/:id/release`
   - Reservation write endpoints are accessible to `online` and `foh` roles
+- FOH runtime TTL endpoints:
+  - `GET /admin/reservation-ttl`
+  - `PATCH /admin/reservation-ttl` (allowed values: 1-15 minutes)
+- Global reservation timer UI:
+  - Floating `TTL` pill appears for authenticated users when `activeReservationId` exists
+  - Hover opens transparent countdown panel
+  - Click pins panel open with solid/pressed style
 - Reservation expiration worker (`backend/app/reservation_expiration.py`): runs every 30s, expires active reservations, emits `stateChanged`
 - Internal expiry trigger: `POST /internal/expire_once` with `X-Internal-Secret`
 - Socket events:
@@ -160,6 +168,7 @@ Backend reads these values:
 - `JWT_ALGORITHM` default: `HS256`
 - `JWT_ACCESS_TOKEN_TTL_MINUTES` default: `60`
 - `RESERVATION_TTL_SECONDS` default: `600`
+  - used as startup default; FOH can override runtime TTL via `/admin/reservation-ttl`
 - `EXPIRATION_INTERVAL_SECONDS` default: `30`
 - `ENABLE_INPROCESS_EXPIRATION_JOB` default: `1` in local/dev, `0` in production/staging
 - `INTERNAL_EXPIRE_SECRET` required in production/staging (used by `POST /internal/expire_once`)
@@ -218,7 +227,7 @@ Test DB:
 - Always run backend with `python run.py` (not `flask run`) so Socket.IO runs with eventlet.
 - No migrations are used in this MVP; schema is created via SQLAlchemy `create_all()`.
 - `backend/seed.py` resets backend tables (`drop_all()` then `create_all()`) before inserting sample data.
-- Frontend API/socket defaults are `http://localhost:5000` when unset.
+- Frontend API/socket defaults are same-origin in deployed builds (CI injects empty `VITE_API_BASE_URL` and `VITE_SOCKET_URL`).
 - Frontend env values can be configured with `frontend/.env` (see `frontend/.env.example`).
 - `stateChanged` is the realtime broadcast event used for client refetch.
 - Frontend unit tests run via Vitest (`cd frontend && npm test`).
