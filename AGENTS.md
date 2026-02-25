@@ -26,7 +26,7 @@ If unsure whether a feature is in scope, ask before implementing.
 KitchenSync is a small monorepo with two workspaces:
 - `backend/`: Flask + Flask-SocketIO service entrypoint in `backend/run.py`, app factory in `backend/app/__init__.py`, and socket events in `backend/app/events.py`.
 - `frontend/`: Vite + React + TypeScript app, with UI entrypoint in `frontend/src/main.tsx`.
-- `docs/`: planning and proposal notes (`docs/proposal.md`).
+- `docs/`: deployment and technical reference documentation (`docs/*.md`).
 - `backend/tests/`: pytest coverage for reservation correctness, concurrency, expiration, and availability serialization.
 
 Keep backend and frontend concerns isolated; shared contracts should be documented in `docs/` before cross-stack changes.
@@ -62,6 +62,32 @@ Tech debt prevention rules:
 Validation rules:
 - Run the smallest meaningful verification for the edited area.
 - If tests/checks are not run, state that explicitly with reason and risk.
+
+## Documentation Maintenance (Non-Negotiable)
+
+Treat documentation updates as part of feature completion, not follow-up work.
+
+Documentation scope ownership:
+- `README.md` is a fast onboarding guide only.
+- `docs/` contains deeper reference material (runtime behavior, environment details, deployment, architecture notes).
+- `AGENTS.md` is the source for repository rules/constraints and documentation maintenance policy.
+
+Maintenance rules:
+- Every code or behavior change must include documentation updates in the same change when any of the following are affected:
+  - local setup/run/test commands
+  - API contracts or response shapes
+  - environment variables/configuration
+  - routing, key UX flows, error handling behavior
+  - deployment/runtime topology
+- Keep `README.md` concise and onboarding-focused. Move non-onboarding detail to logically grouped files in `docs/`.
+- Avoid documentation sprawl:
+  - prefer updating existing docs files first
+  - create new docs files only when content has a distinct purpose
+  - group related content into a small number of reference docs
+- When prompted to update docs, review and reconcile all three surfaces:
+  - `README.md`
+  - `docs/` relevant files
+  - `AGENTS.md` (if rules/process expectations changed)
 
 ## Core Domain Rules (Highest Priority)
 

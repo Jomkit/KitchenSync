@@ -4,7 +4,7 @@
 
 ---
 
-# 1. Executive Summary (≤150 words)
+# 1. Executive Summary
 
 This prototype is a real-time inventory and menu synchronization system for a single restaurant. It ensures that when ingredient quantities change, menu availability updates instantly for kitchen and FOH staff, preventing overselling and operational conflicts.
 
