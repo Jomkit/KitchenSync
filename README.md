@@ -78,10 +78,22 @@ Implemented today:
 - Frontend routes:
   - `/kitchen` (kitchen editable, foh readonly)
   - `/foh` (front-of-house status board)
-  - `/online` (ordering/cart flow for online and foh users)
+  - `/online` (ordering/cart flow for online and foh users with item pricing, subtotal, fixed tax, optional tip, and final total)
   - `/menu` (non-interactive menu board for all authenticated users)
-  - `/online/confirmed` (post-checkout confirmation screen)
+  - `/online/confirmed` (post-checkout confirmation with itemized receipt, subtotal, tax, tip, and final total)
 - Backend tests under `backend/tests/` for reservation correctness, concurrency, expiration, and availability serialization
+
+### Online Pricing And Receipt Behavior (Current)
+
+- Menu cards and cart line items display `price_cents` as currency.
+- Cart totals are calculated in cents:
+  - `subtotal` from line-item totals
+  - `tax` as a fixed `8%` of subtotal
+  - optional `tip` (15%, 20%, 25%, or custom amount)
+  - `final total = subtotal + tax + tip`
+- Tip presets include math indicators so users can see computed tip amounts before selecting.
+- After successful checkout, `/online/confirmed` shows an itemized receipt and totals breakdown.
+- Receipt persistence is frontend-session scoped (route state + `sessionStorage`) and is not server-authoritative or durable.
 
 ## Current MVP Database Schema
 
