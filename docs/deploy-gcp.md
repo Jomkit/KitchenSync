@@ -23,7 +23,7 @@ This document is the implementation-ready plan for deploying KitchenSync as a st
 - Flask static serving before changes: no.
 - Flask static serving now: yes (serves `FRONTEND_DIST_DIR`, default `../frontend/dist`, with SPA fallback).
 - Frontend API/socket URL before changes: hardcoded `http://localhost:5000`.
-- Frontend API/socket URL defaults are same-origin in deployed builds (CI passes empty `VITE_API_BASE_URL` and `VITE_SOCKET_URL` build args).
+- Frontend API/socket URL defaults are same-origin in deployed builds.
 - `seed.py` location/behavior:
   - Location: `backend/seed.py`
   - It runs `Base.metadata.drop_all(bind=engine)` then `create_all()`.
@@ -34,10 +34,8 @@ This document is the implementation-ready plan for deploying KitchenSync as a st
 
 ## 2) Single-Container Runtime
 
-- Uses root `Dockerfile` multi-stage:
-  - Stage 1 builds frontend.
-  - Stage 2 installs backend deps and runs Flask-SocketIO app.
-  - Frontend build copied into `/app/frontend/dist`.
+- Uses root `Dockerfile` runtime stage for backend deps and Flask-SocketIO app.
+- Frontend build is produced in GitHub Actions and copied into image at `/app/frontend/dist`.
 - Container command: `python run.py`
 - Cloud Run compatibility:
   - Binds to `PORT=8080`.
@@ -326,6 +324,7 @@ FOH runtime TTL + timer UX:
 - Confirm floating `TTL` pill appears on authenticated pages when an active reservation exists.
 - Confirm hover opens transparent timer panel and click pins it open with solid styling.
 - Confirm ordering-role warning behavior (`online` + `foh`): pill turns red and auto-opens when remaining time is at/below warning threshold.
+- Confirm timer-elapsed UX on `/online`: blocking overlay appears while reservation status is reconciled and ordering controls are not interactive until cleanup resolves.
 
 CI deploy:
 

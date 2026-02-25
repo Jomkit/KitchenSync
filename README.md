@@ -44,6 +44,8 @@ Implemented today:
   - Click pins panel open with solid/pressed style
   - For ordering roles (`online` + `foh`), pill turns red + auto-opens when remaining time is at/below warning threshold
   - Warning threshold is configurable by FOH (default `30s`, range `5-120s`)
+  - When timer reaches elapsed state, `/online` shows a temporary blocking overlay while local reservation-status cleanup runs
+  - During that cleanup overlay, ordering interactions are disabled to prevent post-expiry cart mutations
 - Reservation expiration worker (`backend/app/reservation_expiration.py`): runs every 30s, expires active reservations, emits `stateChanged`
 - Internal expiry trigger: `POST /internal/expire_once` with `X-Internal-Secret`
 - Socket events:
@@ -232,7 +234,7 @@ Test DB:
 - Always run backend with `python run.py` (not `flask run`) so Socket.IO runs with eventlet.
 - No migrations are used in this MVP; schema is created via SQLAlchemy `create_all()`.
 - `backend/seed.py` resets backend tables (`drop_all()` then `create_all()`) before inserting sample data.
-- Frontend API/socket defaults are same-origin in deployed builds (CI injects empty `VITE_API_BASE_URL` and `VITE_SOCKET_URL`).
+- Frontend API/socket defaults are same-origin in deployed builds.
 - Frontend env values can be configured with `frontend/.env` (see `frontend/.env.example`).
 - `stateChanged` is the realtime broadcast event used for client refetch.
 - Frontend unit tests run via Vitest (`cd frontend && npm test`).
