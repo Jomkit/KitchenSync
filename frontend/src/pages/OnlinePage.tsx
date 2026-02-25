@@ -4,11 +4,23 @@ import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import type { UserRole } from "../auth/token";
 import { clearAuth } from "../auth/token";
+import {
+  calcGrandTotalCents,
+  calcPresetTipCents,
+  calcSubtotalCents,
+  calcTaxCents,
+  formatCents,
+  parseCurrencyInputToCents,
+  TAX_RATE_PERCENT,
+  TIP_PRESETS,
+} from "../pricing/calc";
+import { LAST_ORDER_RECEIPT_KEY, type OrderReceipt } from "../pricing/receipt";
 import { useStateChangedRefetch } from "../realtime/useStateChangedRefetch";
 
 type MenuItem = {
   id: number;
   name: string;
+  price_cents: number;
   available: boolean;
   max_qty_available?: number;
   low_stock?: boolean;
@@ -19,6 +31,14 @@ type MenuItem = {
 type CartItem = {
   menu_item_id: number;
   qty: number;
+};
+
+type CartLine = {
+  menu_item_id: number;
+  name: string;
+  qty: number;
+  unit_price_cents: number;
+  line_total_cents: number;
 };
 
 type ReservationError = {
@@ -70,6 +90,9 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const [isSyncingReservation, setIsSyncingReservation] = useState(false);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [alert, setAlert] = useState("");
+  const [tipMode, setTipMode] = useState<"none" | "preset" | "custom">("none");
+  const [selectedTipPercent, setSelectedTipPercent] = useState<number>(15);
+  const [customTipInput, setCustomTipInput] = useState("");
   const [isExpiryCleanupPending, setIsExpiryCleanupPending] = useState(false);
   const [expiryCleanupMessage, setExpiryCleanupMessage] = useState("");
   const [cleanupTargetReservationId, setCleanupTargetReservationId] = useState<string | null>(null);
@@ -289,6 +312,48 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
       .map(([menuItemId, qty]) => ({ menu_item_id: Number(menuItemId), qty }));
   }, [cart]);
   const cartCount = items.reduce((total, item) => total + item.qty, 0);
+  const cartLines = useMemo<CartLine[]>(() => {
+    return items
+      .map((item) => {
+        const menuItem = menu.find((entry) => entry.id === item.menu_item_id);
+        if (!menuItem) {
+          return null;
+        }
+        return {
+          menu_item_id: item.menu_item_id,
+          name: menuItem.name,
+          qty: item.qty,
+          unit_price_cents: menuItem.price_cents,
+          line_total_cents: item.qty * menuItem.price_cents,
+        };
+      })
+      .filter((line): line is CartLine => line !== null);
+  }, [items, menu]);
+  const subtotalCents = useMemo(
+    () => calcSubtotalCents(cartLines.map((line) => ({ qty: line.qty, unitPriceCents: line.unit_price_cents }))),
+    [cartLines]
+  );
+  const taxCents = useMemo(() => calcTaxCents(subtotalCents, TAX_RATE_PERCENT), [subtotalCents]);
+  const customTipCents = useMemo(() => parseCurrencyInputToCents(customTipInput), [customTipInput]);
+  const tipCents = useMemo(() => {
+    if (tipMode === "preset") {
+      return calcPresetTipCents(subtotalCents, selectedTipPercent);
+    }
+    if (tipMode === "custom") {
+      return customTipCents;
+    }
+    return 0;
+  }, [customTipCents, selectedTipPercent, subtotalCents, tipMode]);
+  const grandTotalCents = useMemo(
+    () => calcGrandTotalCents(subtotalCents, taxCents, tipCents),
+    [subtotalCents, taxCents, tipCents]
+  );
+  const tipReference = useMemo(() => {
+    return TIP_PRESETS.map((tipPercent) => ({
+      tipPercent,
+      amountCents: calcPresetTipCents(subtotalCents, tipPercent),
+    }));
+  }, [subtotalCents]);
 
   const mapConflictLine = useCallback((ingredientName: string): string => {
     const matched = [...menuRef.current]
@@ -473,9 +538,21 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
       return;
     }
     if (response.ok) {
+      const receipt: OrderReceipt = {
+        lines: cartLines,
+        subtotal_cents: subtotalCents,
+        tax_rate_percent: TAX_RATE_PERCENT,
+        tax_cents: taxCents,
+        tip_mode: tipMode,
+        tip_percent: tipMode === "preset" ? selectedTipPercent : null,
+        tip_cents: tipCents,
+        grand_total_cents: grandTotalCents,
+        created_at_iso: new Date().toISOString(),
+      };
+      sessionStorage.setItem(LAST_ORDER_RECEIPT_KEY, JSON.stringify(receipt));
       clearActiveReservation();
       setCart({});
-      navigate("/online/confirmed");
+      navigate("/online/confirmed", { state: { receipt } });
     }
   };
 
@@ -517,6 +594,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
         {menu.map((item) => (
           <article key={item.id} className="rounded border bg-white p-3">
             <p className="font-medium">{item.name}</p>
+            <p className="mt-1 text-sm text-slate-700">{formatCents(item.price_cents)}</p>
             <p className="mt-1 text-xs text-slate-500">
               Ingredients: {item.ingredients?.length ? item.ingredients.join(", ") : "N/A"}
             </p>
@@ -593,14 +671,22 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
 
         {items.length === 0 ? <p className="text-sm text-slate-500">Your cart is empty.</p> : null}
         <ul className="space-y-2">
-          {items.map((item) => {
+          {cartLines.map((item) => {
             const menuItem = menu.find((entry) => entry.id === item.menu_item_id);
             if (!menuItem) {
               return null;
             }
             return (
               <li key={item.menu_item_id} className="rounded border p-2">
-                <p className="text-sm font-medium">{menuItem.name}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">{item.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.qty} x {formatCents(item.unit_price_cents)}
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold">{formatCents(item.line_total_cents)}</p>
+                </div>
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     type="button"
@@ -624,6 +710,80 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
             );
           })}
         </ul>
+        <div className="mt-4 rounded border border-slate-200 p-3">
+          <div className="flex items-center justify-between text-sm">
+            <span>Subtotal</span>
+            <span>{formatCents(subtotalCents)}</span>
+          </div>
+          <div className="mt-1 flex items-center justify-between text-sm">
+            <span>Tax ({TAX_RATE_PERCENT}%)</span>
+            <span>{formatCents(taxCents)}</span>
+          </div>
+          <div className="mt-3">
+            <p className="text-sm font-medium">Tip (optional)</p>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {TIP_PRESETS.map((tipPercent) => (
+                <button
+                  key={tipPercent}
+                  type="button"
+                  className={`rounded border px-2 py-1 text-xs ${
+                    tipMode === "preset" && selectedTipPercent === tipPercent
+                      ? "border-blue-600 bg-blue-50 text-blue-700"
+                      : "border-slate-300 bg-white"
+                  }`}
+                  disabled={isInteractionBlocked}
+                  onClick={() => {
+                    setTipMode("preset");
+                    setSelectedTipPercent(tipPercent);
+                  }}
+                >
+                  {tipPercent}%
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-500">
+              {tipReference.map((entry) => (
+                <span key={entry.tipPercent}>{formatCents(entry.amountCents)}</span>
+              ))}
+            </div>
+            <label className="mt-3 block text-xs text-slate-600" htmlFor="custom-tip">
+              Custom tip amount
+            </label>
+            <input
+              id="custom-tip"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={customTipInput}
+              disabled={isInteractionBlocked}
+              className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              onChange={(event) => {
+                setCustomTipInput(event.target.value);
+                setTipMode("custom");
+              }}
+            />
+            <button
+              type="button"
+              className={`mt-2 rounded px-2 py-1 text-xs ${
+                tipMode === "none" ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"
+              }`}
+              disabled={isInteractionBlocked}
+              onClick={() => setTipMode("none")}
+            >
+              No tip
+            </button>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-sm">
+            <span>Tip</span>
+            <span>{formatCents(tipCents)}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 text-sm font-semibold">
+            <span>Total</span>
+            <span>{formatCents(grandTotalCents)}</span>
+          </div>
+        </div>
 
         {isReserving ? (
           <p className="mt-4 inline-block rounded bg-blue-50 px-3 py-1 text-sm text-blue-700">
@@ -638,7 +798,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
               disabled={items.length === 0 || isInteractionBlocked}
               onClick={() => void commit()}
             >
-              Checkout
+              Checkout {formatCents(grandTotalCents)}
             </button>
             <button className="rounded bg-slate-300 px-3 py-2 disabled:opacity-50" disabled={isInteractionBlocked} onClick={() => void release()}>Cancel order</button>
           </div>

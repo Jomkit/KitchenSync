@@ -81,7 +81,7 @@ describe("Phase 10 routing and online behavior", () => {
       const url = String(input);
       if (url.includes("/menu")) {
         return Promise.resolve(
-          new Response(JSON.stringify([{ id: 1, name: "Pizza", available: true, max_qty_available: 10 }]), { status: 200 })
+          new Response(JSON.stringify([{ id: 1, name: "Pizza", price_cents: 1200, available: true, max_qty_available: 10 }]), { status: 200 })
         );
       }
       if (url.includes("/reservations/123") && !init?.method) {
@@ -132,7 +132,7 @@ describe("Phase 10 routing and online behavior", () => {
       if (url.includes("/menu")) {
         return Promise.resolve(
           new Response(
-            JSON.stringify([{ id: 1, name: "Caprese", available: true, max_qty_available: 10, reason: "Insufficient Tomatoes" }]),
+            JSON.stringify([{ id: 1, name: "Caprese", price_cents: 1200, available: true, max_qty_available: 10, reason: "Insufficient Tomatoes" }]),
             { status: 200 }
           )
         );
@@ -328,7 +328,7 @@ describe("Phase 10 routing and online behavior", () => {
       const url = String(input);
       if (url.includes("/menu")) {
         return Promise.resolve(
-          new Response(JSON.stringify([{ id: 1, name: "Pizza", available: true, max_qty_available: 10 }]), { status: 200 })
+          new Response(JSON.stringify([{ id: 1, name: "Pizza", price_cents: 1200, available: true, max_qty_available: 10 }]), { status: 200 })
         );
       }
       if (url.includes("/reservations/123") && !init?.method) {
