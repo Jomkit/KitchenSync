@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from app.models import Ingredient, MenuItem, Recipe
 from app.runtime_reservation_ttl import set_runtime_ttl_seconds
+from app.runtime_reservation_warning import set_runtime_warning_threshold_seconds
 from config import settings
 from db import SessionLocal
 
@@ -31,6 +32,7 @@ def _create_simple_menu_item() -> int:
 
 def test_foh_can_update_ttl_and_new_reservation_uses_it(app_client) -> None:
     set_runtime_ttl_seconds(settings.reservation_ttl_seconds)
+    set_runtime_warning_threshold_seconds(settings.reservation_warning_threshold_seconds)
     menu_item_id = _create_simple_menu_item()
 
     foh_token = _login(app_client, "foh@example.com")
@@ -58,6 +60,7 @@ def test_foh_can_update_ttl_and_new_reservation_uses_it(app_client) -> None:
 
 def test_non_foh_cannot_update_ttl(app_client) -> None:
     set_runtime_ttl_seconds(settings.reservation_ttl_seconds)
+    set_runtime_warning_threshold_seconds(settings.reservation_warning_threshold_seconds)
     online_token = _login(app_client, "online@example.com")
     response = app_client.patch(
         "/admin/reservation-ttl",
@@ -69,6 +72,7 @@ def test_non_foh_cannot_update_ttl(app_client) -> None:
 
 def test_get_reservation_returns_status_and_expires_at(app_client) -> None:
     set_runtime_ttl_seconds(settings.reservation_ttl_seconds)
+    set_runtime_warning_threshold_seconds(settings.reservation_warning_threshold_seconds)
     menu_item_id = _create_simple_menu_item()
     online_token = _login(app_client, "online@example.com")
 
@@ -89,3 +93,57 @@ def test_get_reservation_returns_status_and_expires_at(app_client) -> None:
     assert body["id"] == reservation_id
     assert body["status"] == "active"
     assert isinstance(body["expires_at"], str)
+
+
+def test_foh_can_update_warning_threshold_seconds(app_client) -> None:
+    set_runtime_ttl_seconds(settings.reservation_ttl_seconds)
+    set_runtime_warning_threshold_seconds(settings.reservation_warning_threshold_seconds)
+    foh_token = _login(app_client, "foh@example.com")
+
+    update_response = app_client.patch(
+        "/admin/reservation-ttl",
+        json={"warning_threshold_seconds": 45},
+        headers=_auth_header(foh_token),
+    )
+    assert update_response.status_code == 200
+    body = update_response.get_json()
+    assert body["warning_threshold_seconds"] == 45
+    assert body["ttl_seconds"] == settings.reservation_ttl_seconds
+
+
+def test_get_ttl_payload_includes_warning_threshold_defaults(app_client) -> None:
+    set_runtime_ttl_seconds(settings.reservation_ttl_seconds)
+    set_runtime_warning_threshold_seconds(settings.reservation_warning_threshold_seconds)
+    foh_token = _login(app_client, "foh@example.com")
+
+    response = app_client.get(
+        "/admin/reservation-ttl",
+        headers=_auth_header(foh_token),
+    )
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["warning_threshold_seconds"] == settings.reservation_warning_threshold_seconds
+    assert body["warning_min_seconds"] == 5
+    assert body["warning_max_seconds"] == 120
+
+
+def test_warning_threshold_validation_errors(app_client) -> None:
+    set_runtime_ttl_seconds(settings.reservation_ttl_seconds)
+    set_runtime_warning_threshold_seconds(settings.reservation_warning_threshold_seconds)
+    foh_token = _login(app_client, "foh@example.com")
+
+    type_response = app_client.patch(
+        "/admin/reservation-ttl",
+        json={"warning_threshold_seconds": "30"},
+        headers=_auth_header(foh_token),
+    )
+    assert type_response.status_code == 400
+    assert type_response.get_json()["error"] == "warning_threshold_seconds must be an integer"
+
+    range_response = app_client.patch(
+        "/admin/reservation-ttl",
+        json={"warning_threshold_seconds": 121},
+        headers=_auth_header(foh_token),
+    )
+    assert range_response.status_code == 400
+    assert range_response.get_json()["error"] == "warning_threshold_seconds must be between 5 and 120"

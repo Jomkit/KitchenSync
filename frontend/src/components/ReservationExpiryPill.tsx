@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiFetch } from "../api/client";
+import type { UserRole } from "../auth/token";
 import { useStateChangedRefetch } from "../realtime/useStateChangedRefetch";
 
 type ReservationStatus = "active" | "committed" | "released" | "expired";
@@ -10,6 +11,8 @@ type ReservationSnapshot = {
   status: ReservationStatus;
   expires_at: string;
 };
+
+const DEFAULT_WARNING_THRESHOLD_SECONDS = 30;
 
 function formatRemaining(seconds: number): string {
   const safeSeconds = Math.max(0, seconds);
@@ -22,12 +25,15 @@ function readActiveReservationId(): string | null {
   return localStorage.getItem("activeReservationId");
 }
 
-export function ReservationExpiryPill(): JSX.Element | null {
+export function ReservationExpiryPill({ role }: { role: UserRole | null }): JSX.Element | null {
+  const isOrderingRole = role === "foh" || role === "online";
   const [activeReservationId, setActiveReservationId] = useState<string | null>(() => readActiveReservationId());
   const [snapshot, setSnapshot] = useState<ReservationSnapshot | null>(null);
   const [pinnedOpen, setPinnedOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [warningThresholdSeconds, setWarningThresholdSeconds] = useState<number>(DEFAULT_WARNING_THRESHOLD_SECONDS);
+  const wasWarningRef = useRef(false);
 
   const loadSnapshot = useCallback(async () => {
     const reservationId = readActiveReservationId();
@@ -57,13 +63,33 @@ export function ReservationExpiryPill(): JSX.Element | null {
     }
   }, []);
 
+  const loadWarningThreshold = useCallback(async () => {
+    if (!isOrderingRole) {
+      setWarningThresholdSeconds(DEFAULT_WARNING_THRESHOLD_SECONDS);
+      return;
+    }
+    const response = await apiFetch("/admin/reservation-ttl");
+    if (!response.ok) {
+      return;
+    }
+    const body = (await response.json()) as { warning_threshold_seconds?: number };
+    if (typeof body.warning_threshold_seconds === "number") {
+      setWarningThresholdSeconds(body.warning_threshold_seconds);
+    }
+  }, [isOrderingRole]);
+
   useStateChangedRefetch(() => {
     void loadSnapshot();
+    void loadWarningThreshold();
   });
 
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
+
+  useEffect(() => {
+    void loadWarningThreshold();
+  }, [loadWarningThreshold]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -95,6 +121,18 @@ export function ReservationExpiryPill(): JSX.Element | null {
     return Math.ceil((expiresAtMs - nowMs) / 1000);
   }, [nowMs, snapshot]);
 
+  const isWarning = isOrderingRole
+    && snapshot?.status === "active"
+    && remainingSeconds !== null
+    && remainingSeconds <= warningThresholdSeconds;
+
+  useEffect(() => {
+    if (isWarning && !wasWarningRef.current) {
+      setPinnedOpen(true);
+    }
+    wasWarningRef.current = isWarning;
+  }, [isWarning]);
+
   if (!activeReservationId || !snapshot) {
     return null;
   }
@@ -116,7 +154,13 @@ export function ReservationExpiryPill(): JSX.Element | null {
       <button
         type="button"
         className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-          pinnedOpen ? "bg-slate-900 text-white shadow-inner translate-y-[1px]" : "bg-white/80 text-slate-700 shadow"
+          isWarning
+            ? (pinnedOpen
+              ? "border-red-800 bg-red-700 text-white shadow-inner translate-y-[1px]"
+              : "border-red-300 bg-red-100 text-red-900 shadow")
+            : (pinnedOpen
+              ? "bg-slate-900 text-white shadow-inner translate-y-[1px]"
+              : "bg-white/80 text-slate-700 shadow")
         }`}
         onClick={() => setPinnedOpen((prev) => !prev)}
       >
@@ -126,7 +170,13 @@ export function ReservationExpiryPill(): JSX.Element | null {
       {open ? (
         <div
           className={`absolute left-1/2 top-full mt-1 min-w-[12rem] -translate-x-1/2 rounded border p-2 text-xs transition ${
-            pinnedOpen ? "bg-white text-slate-900 shadow-lg" : "bg-white/35 text-slate-900 backdrop-blur-[1px]"
+            isWarning
+              ? (pinnedOpen
+                ? "border-red-300 bg-red-50 text-red-900 shadow-lg"
+                : "border-red-200 bg-red-100/70 text-red-900 backdrop-blur-[1px]")
+              : (pinnedOpen
+                ? "bg-white text-slate-900 shadow-lg"
+                : "bg-white/35 text-slate-900 backdrop-blur-[1px]")
           }`}
         >
           <p className="flex items-center justify-between gap-2 text-sm">

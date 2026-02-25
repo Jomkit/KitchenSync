@@ -210,7 +210,15 @@ describe("Phase 10 routing and online behavior", () => {
       if (url.includes("/admin/reservation-ttl")) {
         return Promise.resolve(
           new Response(
-            JSON.stringify({ ttl_seconds: 600, ttl_minutes: 10, min_minutes: 1, max_minutes: 15 }),
+            JSON.stringify({
+              ttl_seconds: 600,
+              ttl_minutes: 10,
+              min_minutes: 1,
+              max_minutes: 15,
+              warning_threshold_seconds: 30,
+              warning_min_seconds: 5,
+              warning_max_seconds: 120,
+            }),
             { status: 200 }
           )
         );
@@ -248,5 +256,112 @@ describe("Phase 10 routing and online behavior", () => {
     );
     await user.click(screen.getByRole("button", { name: "Online" }));
     expect(await screen.findByRole("heading", { name: "Online ordering" })).toBeInTheDocument();
+  });
+
+  it("auto-opens and turns red for foh when remaining time hits warning threshold", async () => {
+    localStorage.setItem("accessToken", makeToken("foh"));
+    localStorage.setItem("activeReservationId", "123");
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/menu")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (url.includes("/admin/reservation-ttl")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ttl_seconds: 600,
+              ttl_minutes: 10,
+              min_minutes: 1,
+              max_minutes: 15,
+              warning_threshold_seconds: 30,
+              warning_min_seconds: 5,
+              warning_max_seconds: 120,
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      if (url.includes("/reservations/123") && !init?.method) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 123,
+              status: "active",
+              expires_at: new Date(Date.now() + 20_000).toISOString(),
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/online"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    await screen.findByText("Hold expires in");
+    expect(screen.getByRole("button", { name: "TTL" }).className).toContain("bg-red-700");
+  });
+
+  it("keeps pill closed when foh manually closes it under warning threshold", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("accessToken", makeToken("foh"));
+    localStorage.setItem("activeReservationId", "123");
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/menu")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (url.includes("/admin/reservation-ttl")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ttl_seconds: 600,
+              ttl_minutes: 10,
+              min_minutes: 1,
+              max_minutes: 15,
+              warning_threshold_seconds: 30,
+              warning_min_seconds: 5,
+              warning_max_seconds: 120,
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      if (url.includes("/reservations/123") && !init?.method) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 123,
+              status: "active",
+              expires_at: new Date(Date.now() + 20_000).toISOString(),
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/online"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    await screen.findByText("Hold expires in");
+    const ttlButton = screen.getByRole("button", { name: "TTL" });
+    await user.click(ttlButton);
+    await user.unhover(ttlButton);
+    await waitFor(() => {
+      expect(screen.queryByText("Hold expires in")).not.toBeInTheDocument();
+    });
+    expect(ttlButton.className).toContain("bg-red-100");
   });
 });

@@ -30,6 +30,9 @@ type ReservationTtlPayload = {
   ttl_minutes: number;
   min_minutes: number;
   max_minutes: number;
+  warning_threshold_seconds: number;
+  warning_min_seconds: number;
+  warning_max_seconds: number;
 };
 
 function getItemMaxQty(item: MenuItem): number {
@@ -54,6 +57,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const [alert, setAlert] = useState("");
   const [ttlInfo, setTtlInfo] = useState<ReservationTtlPayload | null>(null);
   const [ttlMinutes, setTtlMinutes] = useState<number>(10);
+  const [warningThresholdSeconds, setWarningThresholdSeconds] = useState<number>(30);
   const [ttlError, setTtlError] = useState("");
   const [isSavingTtl, setIsSavingTtl] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -78,6 +82,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     const body = (await response.json()) as ReservationTtlPayload;
     setTtlInfo(body);
     setTtlMinutes(body.ttl_minutes);
+    setWarningThresholdSeconds(body.warning_threshold_seconds ?? 30);
     setTtlError("");
   }, [isFohFlow]);
 
@@ -259,7 +264,10 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     try {
       const response = await apiFetch("/admin/reservation-ttl", {
         method: "PATCH",
-        body: JSON.stringify({ ttl_minutes: ttlMinutes }),
+        body: JSON.stringify({
+          ttl_minutes: ttlMinutes,
+          warning_threshold_seconds: warningThresholdSeconds,
+        }),
       });
       if (!response.ok) {
         const errorBody = (await response.json()) as { error?: string };
@@ -269,6 +277,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
       const body = (await response.json()) as ReservationTtlPayload;
       setTtlInfo(body);
       setTtlMinutes(body.ttl_minutes);
+      setWarningThresholdSeconds(body.warning_threshold_seconds ?? warningThresholdSeconds);
     } finally {
       setIsSavingTtl(false);
     }
@@ -284,6 +293,11 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
             {" "}
             {ttlInfo ? `${ttlInfo.ttl_minutes} min` : "--"}
           </p>
+          <p className="text-sm font-medium">
+            Warning threshold:
+            {" "}
+            {ttlInfo ? `${ttlInfo.warning_threshold_seconds}s` : "--"}
+          </p>
           <label className="text-sm" htmlFor="ttl-minutes-select">Set to</label>
           <select
             id="ttl-minutes-select"
@@ -293,6 +307,17 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
           >
             {Array.from({ length: 15 }, (_, index) => index + 1).map((value) => (
               <option key={value} value={value}>{value} min</option>
+            ))}
+          </select>
+          <label className="text-sm" htmlFor="warning-threshold-select">Warn at</label>
+          <select
+            id="warning-threshold-select"
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            value={warningThresholdSeconds}
+            onChange={(event) => setWarningThresholdSeconds(Number(event.target.value))}
+          >
+            {Array.from({ length: 116 }, (_, index) => index + 5).map((value) => (
+              <option key={value} value={value}>{value}s</option>
             ))}
           </select>
           <button

@@ -56,7 +56,7 @@ function Shell({ children, role, email }: { children: JSX.Element; role: UserRol
 
   return (
     <main className="min-h-screen bg-slate-100 p-4 text-slate-900">
-      {role ? <ReservationExpiryPill /> : null}
+      {role ? <ReservationExpiryPill role={role} /> : null}
       <div className="mx-auto max-w-6xl space-y-4">
         <nav className="flex items-center gap-2 rounded bg-white p-3 shadow">
           <NavLink to="/?landing=1" className={navItemClass}>
