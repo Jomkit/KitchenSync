@@ -83,6 +83,7 @@ Reservation requirements:
 - FOH may adjust runtime reservation TTL between 1 and 15 minutes for demo operations
 - FOH may adjust TTL warning threshold between 5 and 120 seconds for demo operations
 - Ordering roles (`online` and `foh`) should see TTL warning state in the pill (red + auto-open at threshold)
+- When timer elapses in `/online`, UI should block ordering interactions until local reservation cleanup/reconciliation finishes
 - Expiration job runs in-process every ~30 seconds
 
 Expiration must:
