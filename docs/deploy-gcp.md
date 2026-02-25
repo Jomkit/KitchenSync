@@ -329,5 +329,5 @@ FOH runtime TTL + timer UX:
 CI deploy:
 
 - Push to `main`.
-- Confirm workflow `test-build-deploy` passes.
+- Confirm workflow `kitchensync_prod` passes with `test`, `build`, and `deploy` jobs successful.
 - Confirm Cloud Run revision updates to image tagged with commit SHA.
