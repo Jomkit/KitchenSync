@@ -17,11 +17,9 @@ logger = logging.getLogger("kitchensync.app")
 
 def create_app() -> Flask:
     frontend_dist_dir = Path(settings.frontend_dist_dir)
-    app = Flask(
-        __name__,
-        static_folder=str(frontend_dist_dir) if frontend_dist_dir.exists() else None,
-        static_url_path="/",
-    )
+    # Do not mount Flask's built-in static route at "/" because it conflicts with
+    # SPA client-side routes (for example, refreshing "/online").
+    app = Flask(__name__, static_folder=None)
 
     CORS(app, resources={r"/*": {"origins": settings.cors_allowed_origins}})
 

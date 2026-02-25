@@ -295,11 +295,10 @@ Major cost increase would come from:
 
 ---
 
-# 11. Future Evolution Path (≤150 words)
+# 11. Future Evolution Path
 
 After traction:
 
-* Move to PostgreSQL for stronger concurrency guarantees
 * Separate reservation and inventory services if scaling
 * Introduce substitution modeling
 * Add multi-restaurant tenancy
