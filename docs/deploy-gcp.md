@@ -23,7 +23,7 @@ This document is the implementation-ready plan for deploying KitchenSync as a st
 - Flask static serving before changes: no.
 - Flask static serving now: yes (serves `FRONTEND_DIST_DIR`, default `../frontend/dist`, with SPA fallback).
 - Frontend API/socket URL before changes: hardcoded `http://localhost:5000`.
-- Frontend API/socket URL defaults to `http://localhost:5000`; override with `VITE_API_BASE_URL` / `VITE_SOCKET_URL` for deployed environments.
+- Frontend API/socket URL defaults are same-origin in deployed builds (CI passes empty `VITE_API_BASE_URL` and `VITE_SOCKET_URL` build args).
 - `seed.py` location/behavior:
   - Location: `backend/seed.py`
   - It runs `Base.metadata.drop_all(bind=engine)` then `create_all()`.
@@ -184,7 +184,7 @@ gcloud run jobs create kitchensync-seed \
   --service-account="${RUNTIME_SA}" \
   --set-cloudsql-instances="${CLOUD_SQL_CONNECTION}" \
   --set-env-vars="APP_ENV=production" \
-  --set-secrets="DATABASE_URL=DATABASE_URL:latest" \
+  --set-secrets="DATABASE_URL=DATABASE_URL:latest,INTERNAL_EXPIRE_SECRET=INTERNAL_EXPIRE_SECRET:latest" \
   --command="python" \
   --args="seed.py"
 ```
@@ -317,6 +317,12 @@ TTL expiry:
 
 - Create reservation, wait slightly over 60 seconds, confirm reservation no longer counted as active hold.
 - Check Cloud Run logs for `expire_reservations_once completed expired_count=...`.
+
+FOH runtime TTL + timer UX:
+
+- As FOH, verify `GET /admin/reservation-ttl` and `PATCH /admin/reservation-ttl` work with values 1-15 minutes.
+- Confirm floating `TTL` pill appears on authenticated pages when an active reservation exists.
+- Confirm hover opens transparent timer panel and click pins it open with solid styling.
 
 CI deploy:
 

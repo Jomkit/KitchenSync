@@ -84,6 +84,18 @@ describe("Phase 10 routing and online behavior", () => {
           new Response(JSON.stringify([{ id: 1, name: "Pizza", available: true, max_qty_available: 10 }]), { status: 200 })
         );
       }
+      if (url.includes("/reservations/123") && !init?.method) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 123,
+              status: "active",
+              expires_at: new Date(Date.now() + 600_000).toISOString(),
+            }),
+            { status: 200 }
+          )
+        );
+      }
       if (url.includes("/reservations/123") && init?.method === "PATCH") {
         return Promise.resolve(new Response(JSON.stringify({ id: 123, status: "active" }), { status: 200 }));
       }
@@ -121,6 +133,18 @@ describe("Phase 10 routing and online behavior", () => {
         return Promise.resolve(
           new Response(
             JSON.stringify([{ id: 1, name: "Caprese", available: true, max_qty_available: 10, reason: "Insufficient Tomatoes" }]),
+            { status: 200 }
+          )
+        );
+      }
+      if (url.includes("/reservations/123") && !init?.method) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 123,
+              status: "active",
+              expires_at: new Date(Date.now() + 600_000).toISOString(),
+            }),
             { status: 200 }
           )
         );
@@ -182,6 +206,14 @@ describe("Phase 10 routing and online behavior", () => {
       }
       if (url.includes("/menu")) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (url.includes("/admin/reservation-ttl")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ ttl_seconds: 600, ttl_minutes: 10, min_minutes: 1, max_minutes: 15 }),
+            { status: 200 }
+          )
+        );
       }
       return Promise.resolve(new Response("{}", { status: 200 }));
     });

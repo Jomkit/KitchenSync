@@ -25,6 +25,13 @@ type ReservationError = {
   ingredient_name: string;
 };
 
+type ReservationTtlPayload = {
+  ttl_seconds: number;
+  ttl_minutes: number;
+  min_minutes: number;
+  max_minutes: number;
+};
+
 function getItemMaxQty(item: MenuItem): number {
   if (typeof item.max_qty_available === "number") {
     return Math.max(0, item.max_qty_available);
@@ -45,6 +52,10 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const [isSyncingReservation, setIsSyncingReservation] = useState(false);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [alert, setAlert] = useState("");
+  const [ttlInfo, setTtlInfo] = useState<ReservationTtlPayload | null>(null);
+  const [ttlMinutes, setTtlMinutes] = useState<number>(10);
+  const [ttlError, setTtlError] = useState("");
+  const [isSavingTtl, setIsSavingTtl] = useState(false);
   const timerRef = useRef<number | null>(null);
   const reservingTimerRef = useRef<number | null>(null);
   const menuRef = useRef<MenuItem[]>([]);
@@ -55,9 +66,28 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     setMenu(data);
   }, []);
 
+  const loadTtlInfo = useCallback(async () => {
+    if (!isFohFlow) {
+      return;
+    }
+    const response = await apiFetch("/admin/reservation-ttl");
+    if (!response.ok) {
+      setTtlError("Unable to load reservation TTL.");
+      return;
+    }
+    const body = (await response.json()) as ReservationTtlPayload;
+    setTtlInfo(body);
+    setTtlMinutes(body.ttl_minutes);
+    setTtlError("");
+  }, [isFohFlow]);
+
   useEffect(() => {
     void loadMenu();
   }, [loadMenu]);
+
+  useEffect(() => {
+    void loadTtlInfo();
+  }, [loadTtlInfo]);
 
   useStateChangedRefetch(loadMenu);
 
@@ -220,9 +250,62 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     navigate("/");
   };
 
+  const updateTtl = async () => {
+    if (!ttlInfo) {
+      return;
+    }
+    setIsSavingTtl(true);
+    setTtlError("");
+    try {
+      const response = await apiFetch("/admin/reservation-ttl", {
+        method: "PATCH",
+        body: JSON.stringify({ ttl_minutes: ttlMinutes }),
+      });
+      if (!response.ok) {
+        const errorBody = (await response.json()) as { error?: string };
+        setTtlError(errorBody.error || "Unable to update TTL.");
+        return;
+      }
+      const body = (await response.json()) as ReservationTtlPayload;
+      setTtlInfo(body);
+      setTtlMinutes(body.ttl_minutes);
+    } finally {
+      setIsSavingTtl(false);
+    }
+  };
+
   return (
     <section className="relative pb-20">
       <h1 className="mb-3 text-xl font-bold">{pageTitle}</h1>
+      {isFohFlow ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded bg-white p-2 shadow-sm">
+          <p className="text-sm font-medium">
+            Reservation TTL:
+            {" "}
+            {ttlInfo ? `${ttlInfo.ttl_minutes} min` : "--"}
+          </p>
+          <label className="text-sm" htmlFor="ttl-minutes-select">Set to</label>
+          <select
+            id="ttl-minutes-select"
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            value={ttlMinutes}
+            onChange={(event) => setTtlMinutes(Number(event.target.value))}
+          >
+            {Array.from({ length: 15 }, (_, index) => index + 1).map((value) => (
+              <option key={value} value={value}>{value} min</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="rounded bg-slate-800 px-3 py-1 text-sm text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+            disabled={isSavingTtl}
+            onClick={() => void updateTtl()}
+          >
+            {isSavingTtl ? "Saving..." : "Apply TTL"}
+          </button>
+          {ttlError ? <p className="text-sm text-red-600">{ttlError}</p> : null}
+        </div>
+      ) : null}
       {alert ? <p className="mb-2 rounded bg-yellow-100 p-2 text-sm">{alert}</p> : null}
       {conflicts.length > 0 ? (
         <ul className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">
