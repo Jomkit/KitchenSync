@@ -25,6 +25,14 @@ type ReservationError = {
   ingredient_name: string;
 };
 
+type ReservationStatus = "active" | "committed" | "released" | "expired";
+
+type ReservationSnapshot = {
+  id: number;
+  status: ReservationStatus;
+  expires_at: string;
+};
+
 type ReservationTtlPayload = {
   ttl_seconds: number;
   ttl_minutes: number;
@@ -49,6 +57,9 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const addLabelPrefix = isFohFlow ? "Add ticket" : "Add";
   const reservingLabel = isFohFlow ? "Reserving for FOH..." : "Reserving...";
   const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [activeReservationId, setActiveReservationId] = useState<string | null>(
+    () => localStorage.getItem("activeReservationId")
+  );
   const [cart, setCart] = useState<Record<number, number>>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isReserving, setIsReserving] = useState(false);
@@ -60,9 +71,52 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const [warningThresholdSeconds, setWarningThresholdSeconds] = useState<number>(30);
   const [ttlError, setTtlError] = useState("");
   const [isSavingTtl, setIsSavingTtl] = useState(false);
+  const [isExpiryCleanupPending, setIsExpiryCleanupPending] = useState(false);
+  const [expiryCleanupMessage, setExpiryCleanupMessage] = useState("");
+  const [cleanupTargetReservationId, setCleanupTargetReservationId] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
   const reservingTimerRef = useRef<number | null>(null);
+  const expiryCleanupIntervalRef = useRef<number | null>(null);
+  const expiryCleanupCheckInFlightRef = useRef(false);
+  const handledEndedReservationIdRef = useRef<string | null>(null);
   const menuRef = useRef<MenuItem[]>([]);
+
+  const clearActiveReservation = useCallback(() => {
+    localStorage.removeItem("activeReservationId");
+    setActiveReservationId(null);
+  }, []);
+
+  const stopExpiryCleanupFlow = useCallback(() => {
+    if (expiryCleanupIntervalRef.current) {
+      window.clearInterval(expiryCleanupIntervalRef.current);
+      expiryCleanupIntervalRef.current = null;
+    }
+    expiryCleanupCheckInFlightRef.current = false;
+    setIsExpiryCleanupPending(false);
+    setExpiryCleanupMessage("");
+    setCleanupTargetReservationId(null);
+  }, []);
+
+  const handleReservationEnded = useCallback(
+    (reason: "expired" | "released" | "missing" | "conflict", reservationId: string | null = activeReservationId) => {
+      if (!reservationId) {
+        return;
+      }
+      if (handledEndedReservationIdRef.current === reservationId) {
+        return;
+      }
+      handledEndedReservationIdRef.current = reservationId;
+      clearActiveReservation();
+      setCart({});
+      setConflicts([]);
+      setIsCartOpen(false);
+      stopExpiryCleanupFlow();
+      if (reason === "expired" || reason === "conflict") {
+        setAlert("Your reservation expired. Items were released. Please start a new order.");
+      }
+    },
+    [activeReservationId, clearActiveReservation, stopExpiryCleanupFlow]
+  );
 
   const loadMenu = useCallback(async () => {
     const response = await apiFetch("/menu");
@@ -95,6 +149,104 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   }, [loadTtlInfo]);
 
   useStateChangedRefetch(loadMenu);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "activeReservationId") {
+        setActiveReservationId(localStorage.getItem("activeReservationId"));
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  const checkReservationStatus = useCallback(async (reservationId: string): Promise<ReservationStatus | "missing" | "error"> => {
+    const response = await apiFetch(`/reservations/${reservationId}`);
+    if (response.status === 404) {
+      return "missing";
+    }
+    if (!response.ok) {
+      return "error";
+    }
+    const body = (await response.json()) as ReservationSnapshot;
+    return body.status;
+  }, []);
+
+  const startTimerElapsedCleanup = useCallback((reservationId: string) => {
+    if (!reservationId) {
+      return;
+    }
+    if (activeReservationId && activeReservationId !== reservationId) {
+      return;
+    }
+    if (cleanupTargetReservationId === reservationId && isExpiryCleanupPending) {
+      return;
+    }
+
+    setIsExpiryCleanupPending(true);
+    setCleanupTargetReservationId(reservationId);
+    setExpiryCleanupMessage("Reservation expired. Finalizing your session...");
+
+    const runCheck = () => {
+      if (expiryCleanupCheckInFlightRef.current) {
+        return;
+      }
+      expiryCleanupCheckInFlightRef.current = true;
+      void (async () => {
+        try {
+          const status = await checkReservationStatus(reservationId);
+          if (status === "active") {
+            setExpiryCleanupMessage("Checking reservation status...");
+            return;
+          }
+          if (status === "error") {
+            setExpiryCleanupMessage("Checking reservation status... retrying");
+            return;
+          }
+          if (status === "missing") {
+            handleReservationEnded("missing", reservationId);
+            return;
+          }
+          if (status === "expired") {
+            handleReservationEnded("expired", reservationId);
+            await loadMenu();
+            return;
+          }
+          handleReservationEnded("released", reservationId);
+        } finally {
+          expiryCleanupCheckInFlightRef.current = false;
+        }
+      })();
+    };
+
+    runCheck();
+    if (expiryCleanupIntervalRef.current) {
+      window.clearInterval(expiryCleanupIntervalRef.current);
+    }
+    expiryCleanupIntervalRef.current = window.setInterval(runCheck, 1500);
+  }, [
+    activeReservationId,
+    checkReservationStatus,
+    cleanupTargetReservationId,
+    handleReservationEnded,
+    isExpiryCleanupPending,
+    loadMenu,
+  ]);
+
+  useEffect(() => {
+    const onReservationTimerElapsed = (event: Event) => {
+      const customEvent = event as CustomEvent<{ reservationId?: string }>;
+      const reservationId = customEvent.detail?.reservationId;
+      if (!reservationId) {
+        return;
+      }
+      startTimerElapsedCleanup(reservationId);
+    };
+    window.addEventListener("reservationTimerElapsed", onReservationTimerElapsed as EventListener);
+    return () => {
+      window.removeEventListener("reservationTimerElapsed", onReservationTimerElapsed as EventListener);
+    };
+  }, [startTimerElapsedCleanup]);
 
   useEffect(() => {
     menuRef.current = menu;
@@ -133,9 +285,8 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
 
     timerRef.current = window.setTimeout(() => {
       void (async () => {
-        const reservationId = localStorage.getItem("activeReservationId");
-        const path = reservationId ? `/reservations/${reservationId}` : "/reservations";
-        const method = reservationId ? "PATCH" : "POST";
+        const path = activeReservationId ? `/reservations/${activeReservationId}` : "/reservations";
+        const method = activeReservationId ? "PATCH" : "POST";
 
         setIsSyncingReservation(true);
         try {
@@ -150,6 +301,13 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
               setConflicts(body.errors.map((error) => mapConflictLine(error.ingredient_name)));
               return;
             }
+            handleReservationEnded("conflict", activeReservationId);
+            await loadMenu();
+            return;
+          }
+
+          if (response.status === 404) {
+            handleReservationEnded("missing", activeReservationId);
             return;
           }
 
@@ -159,8 +317,10 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
 
           setConflicts([]);
           const body = (await response.json()) as { id: number };
-          if (!reservationId && body.id) {
+          if (!activeReservationId && body.id) {
             localStorage.setItem("activeReservationId", String(body.id));
+            handledEndedReservationIdRef.current = null;
+            setActiveReservationId(String(body.id));
           }
         } finally {
           setIsSyncingReservation(false);
@@ -173,7 +333,52 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
         window.clearTimeout(timerRef.current);
       }
     };
-  }, [items, loadMenu, mapConflictLine]);
+  }, [activeReservationId, handleReservationEnded, items, loadMenu, mapConflictLine]);
+
+  useEffect(() => {
+    if (!activeReservationId) {
+      return;
+    }
+    if (isExpiryCleanupPending) {
+      return;
+    }
+
+    let cancelled = false;
+    const checkReservation = async () => {
+      const status = await checkReservationStatus(activeReservationId);
+      if (cancelled) {
+        return;
+      }
+      if (status === "active" || status === "error") {
+        return;
+      }
+      if (status === "missing") {
+        handleReservationEnded("missing", activeReservationId);
+        return;
+      }
+      if (status === "expired") {
+        handleReservationEnded("expired", activeReservationId);
+        await loadMenu();
+        return;
+      }
+      handleReservationEnded("released", activeReservationId);
+    };
+
+    void checkReservation();
+    const id = window.setInterval(() => {
+      void checkReservation();
+    }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [activeReservationId, checkReservationStatus, handleReservationEnded, isExpiryCleanupPending, loadMenu]);
+
+  useEffect(() => {
+    return () => {
+      stopExpiryCleanupFlow();
+    };
+  }, [stopExpiryCleanupFlow]);
 
   useEffect(() => {
     return () => {
@@ -194,11 +399,13 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     }, 1600);
   };
 
+  const isInteractionBlocked = isSyncingReservation || isExpiryCleanupPending;
+
   const adjustCartQty = (menuItemId: number, delta: number) => {
     setCart((prev) => {
       const currentQty = prev[menuItemId] || 0;
       const maxQty = maxQtyByMenuItem[menuItemId] ?? 0;
-      if (delta > 0 && isSyncingReservation) {
+      if (isInteractionBlocked) {
         return prev;
       }
       const nextQty = delta > 0
@@ -215,7 +422,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
       }
       return next;
     });
-    if (delta > 0) {
+      if (delta > 0 && !isInteractionBlocked) {
       showReservingIndicator();
       setIsCartOpen(true);
     }
@@ -225,32 +432,34 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     if (items.length === 0) {
       return;
     }
-    const reservationId = localStorage.getItem("activeReservationId");
-    if (!reservationId) {
+    if (isInteractionBlocked) {
       return;
     }
-    const response = await apiFetch(`/reservations/${reservationId}/commit`, { method: "POST" });
+    if (!activeReservationId) {
+      return;
+    }
+    const response = await apiFetch(`/reservations/${activeReservationId}/commit`, { method: "POST" });
     if (response.status === 409) {
-      localStorage.removeItem("activeReservationId");
+      handleReservationEnded("expired", activeReservationId);
       await loadMenu();
-      setAlert("Your reservation expired or inventory changed. Please try again.");
       return;
     }
     if (response.ok) {
-      localStorage.removeItem("activeReservationId");
+      clearActiveReservation();
       setCart({});
       navigate("/online/confirmed");
     }
   };
 
   const release = async () => {
-    const reservationId = localStorage.getItem("activeReservationId");
-    if (!reservationId) {
+    if (!activeReservationId) {
       return;
     }
-    await apiFetch(`/reservations/${reservationId}/release`, { method: "POST" });
-    localStorage.removeItem("activeReservationId");
-    setCart({});
+    if (isInteractionBlocked) {
+      return;
+    }
+    await apiFetch(`/reservations/${activeReservationId}/release`, { method: "POST" });
+    handleReservationEnded("released", activeReservationId);
     clearAuth();
     navigate("/");
   };
@@ -332,6 +541,16 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
         </div>
       ) : null}
       {alert ? <p className="mb-2 rounded bg-yellow-100 p-2 text-sm">{alert}</p> : null}
+      {isExpiryCleanupPending ? (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/30">
+          <div className="w-full max-w-sm rounded border bg-white p-4 text-center shadow-lg">
+            <p className="text-sm font-medium text-slate-900">
+              {expiryCleanupMessage || "Checking reservation status..."}
+            </p>
+            <p className="mt-2 text-xs text-slate-600">Please wait while we finalize your session.</p>
+          </div>
+        </div>
+      ) : null}
       {conflicts.length > 0 ? (
         <ul className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">
           {conflicts.map((line) => (
@@ -350,7 +569,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
             <div className="mt-3 flex items-center justify-between">
               <button
                 type="button"
-                disabled={!item.available || getItemMaxQty(item) <= 0 || isSyncingReservation}
+                disabled={!item.available || getItemMaxQty(item) <= 0 || isInteractionBlocked}
                 className="rounded bg-blue-600 px-3 py-1 text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                 onClick={() => adjustCartQty(item.id, 1)}
               >
@@ -362,6 +581,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold"
                     aria-label={`Decrease ${item.name}`}
+                    disabled={isInteractionBlocked}
                     onClick={() => adjustCartQty(item.id, -1)}
                   >
                     -
@@ -371,7 +591,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold disabled:opacity-50"
                     aria-label={`Increase ${item.name}`}
-                    disabled={getItemMaxQty(item) <= 0 || isSyncingReservation}
+                    disabled={getItemMaxQty(item) <= 0 || isInteractionBlocked}
                     onClick={() => adjustCartQty(item.id, 1)}
                   >
                     +
@@ -391,6 +611,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
         className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-xl text-white shadow-lg"
         aria-label="Toggle cart"
         onClick={() => setIsCartOpen((prev) => !prev)}
+        disabled={isExpiryCleanupPending}
       >
         🛒
         {cartCount > 0 ? (
@@ -408,6 +629,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
           <button
             type="button"
             className="rounded bg-slate-200 px-2 py-1 text-sm"
+            disabled={isInteractionBlocked}
             onClick={() => setIsCartOpen(false)}
           >
             Close
@@ -428,6 +650,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
                   <button
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold"
+                    disabled={isInteractionBlocked}
                     onClick={() => adjustCartQty(item.menu_item_id, -1)}
                   >
                     -
@@ -436,7 +659,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
                   <button
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-slate-100 font-semibold disabled:opacity-50"
-                    disabled={getItemMaxQty(menuItem) <= 0 || isSyncingReservation}
+                    disabled={getItemMaxQty(menuItem) <= 0 || isInteractionBlocked}
                     onClick={() => adjustCartQty(item.menu_item_id, 1)}
                   >
                     +
@@ -452,17 +675,17 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
             {reservingLabel}
           </p>
         ) : null}
-        {localStorage.getItem("activeReservationId") ? (
+        {activeReservationId ? (
           <div className="mt-4 flex gap-2">
             <button
               type="button"
               className="rounded bg-green-600 px-3 py-2 text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-              disabled={items.length === 0}
+              disabled={items.length === 0 || isInteractionBlocked}
               onClick={() => void commit()}
             >
               Checkout
             </button>
-            <button className="rounded bg-slate-300 px-3 py-2" onClick={() => void release()}>Cancel order</button>
+            <button className="rounded bg-slate-300 px-3 py-2 disabled:opacity-50" disabled={isInteractionBlocked} onClick={() => void release()}>Cancel order</button>
           </div>
         ) : null}
       </aside>

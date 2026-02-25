@@ -364,4 +364,58 @@ describe("Phase 10 routing and online behavior", () => {
     });
     expect(ttlButton.className).toContain("bg-red-100");
   });
+
+  it("ends ordering session when active reservation becomes expired", async () => {
+    localStorage.setItem("accessToken", makeToken("online"));
+    localStorage.setItem("activeReservationId", "123");
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/menu")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (url.includes("/admin/reservation-ttl")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ttl_seconds: 600,
+              ttl_minutes: 10,
+              min_minutes: 1,
+              max_minutes: 15,
+              warning_threshold_seconds: 30,
+              warning_min_seconds: 5,
+              warning_max_seconds: 120,
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      if (url.includes("/reservations/123") && !init?.method) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 123,
+              status: "expired",
+              expires_at: new Date(Date.now() - 5_000).toISOString(),
+            }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/online"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    expect(
+      await screen.findByText("Your reservation expired. Items were released. Please start a new order.")
+    ).toBeInTheDocument();
+    expect(localStorage.getItem("activeReservationId")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel order" })).not.toBeInTheDocument();
+  });
+
 });

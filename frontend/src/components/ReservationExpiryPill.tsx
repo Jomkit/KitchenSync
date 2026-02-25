@@ -34,6 +34,7 @@ export function ReservationExpiryPill({ role }: { role: UserRole | null }): JSX.
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [warningThresholdSeconds, setWarningThresholdSeconds] = useState<number>(DEFAULT_WARNING_THRESHOLD_SECONDS);
   const wasWarningRef = useRef(false);
+  const elapsedNotifiedReservationIdRef = useRef<string | null>(null);
 
   const loadSnapshot = useCallback(async () => {
     const reservationId = readActiveReservationId();
@@ -132,6 +133,28 @@ export function ReservationExpiryPill({ role }: { role: UserRole | null }): JSX.
     }
     wasWarningRef.current = isWarning;
   }, [isWarning]);
+
+  useEffect(() => {
+    if (!activeReservationId || !snapshot || snapshot.status !== "active") {
+      elapsedNotifiedReservationIdRef.current = null;
+      return;
+    }
+
+    if (remainingSeconds === null || remainingSeconds > 0) {
+      return;
+    }
+
+    if (elapsedNotifiedReservationIdRef.current === activeReservationId) {
+      return;
+    }
+
+    elapsedNotifiedReservationIdRef.current = activeReservationId;
+    window.dispatchEvent(
+      new CustomEvent("reservationTimerElapsed", {
+        detail: { reservationId: activeReservationId },
+      })
+    );
+  }, [activeReservationId, remainingSeconds, snapshot]);
 
   if (!activeReservationId || !snapshot) {
     return null;
