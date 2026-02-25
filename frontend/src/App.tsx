@@ -8,6 +8,7 @@ import { FohPage } from "./pages/FohPage";
 import { OnlinePage } from "./pages/OnlinePage";
 import { OrderConfirmedPage } from "./pages/OrderConfirmedPage";
 import { MenuPage } from "./pages/MenuPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 function ProtectedRoute({ children, allow, role }: { children: JSX.Element; allow: UserRole[]; role: UserRole | null }) {
   const location = useLocation();
@@ -161,6 +162,18 @@ export function AppRoutes() {
               <MenuPage />
             </Shell>
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="*"
+        element={
+          role ? (
+            <Shell role={role} email={email}>
+              <NotFoundPage role={role} />
+            </Shell>
+          ) : (
+            <NotFoundPage role={role} />
+          )
         }
       />
     </Routes>

@@ -10,6 +10,7 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy import select
 
 from app.models import User
+from app.error_responses import error_response
 from config import settings
 from db import SessionLocal
 
@@ -37,11 +38,11 @@ def _decode_access_token(token: str) -> dict[str, Any]:
 
 
 def _unauthorized(message: str) -> tuple[dict[str, str], int]:
-    return jsonify({"error": message}), 401
+    return error_response(message, 401)
 
 
 def _forbidden(message: str) -> tuple[dict[str, str], int]:
-    return jsonify({"error": message}), 403
+    return error_response(message, 403)
 
 
 def _read_bearer_token() -> str | None:
@@ -111,14 +112,14 @@ def login() -> tuple[dict[str, Any], int]:
 
     if not isinstance(username, str) or not isinstance(password, str):
         logger.warning("login failed invalid_payload")
-        return jsonify({"error": "username and password are required"}), 400
+        return error_response("username and password are required", 400, code="AUTH_INVALID_PAYLOAD")
 
     with SessionLocal() as session:
         user = session.execute(select(User).where(User.email == username)).scalar_one_or_none()
 
     if user is None or user.password != password:
         logger.warning("login failed invalid_credentials username=%s", username)
-        return jsonify({"error": "Invalid credentials"}), 401
+        return error_response("Invalid credentials", 401, code="AUTH_INVALID_CREDENTIALS")
 
     access_token = _create_access_token(user)
     logger.info("login success user_id=%s role=%s", user.id, user.role)

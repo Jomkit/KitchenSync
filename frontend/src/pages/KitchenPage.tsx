@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "../api/client";
+import { readApiError } from "../api/errors";
 import type { UserRole } from "../auth/token";
 import { useStateChangedRefetch } from "../realtime/useStateChangedRefetch";
 
@@ -18,13 +19,23 @@ type Ingredient = {
 export function KitchenPage({ role }: { role: UserRole | null }) {
   const [items, setItems] = useState<Ingredient[]>([]);
   const [errors, setErrors] = useState<Record<number, string>>({});
+  const [pageError, setPageError] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [queuedRefresh, setQueuedRefresh] = useState(false);
 
   const load = useCallback(async () => {
-    const response = await apiFetch("/ingredients");
-    const data = (await response.json()) as Ingredient[];
-    setItems(data);
+    try {
+      const response = await apiFetch("/ingredients");
+      if (!response.ok) {
+        setPageError(await readApiError(response, "Unable to load ingredients."));
+        return;
+      }
+      const data = (await response.json()) as Ingredient[];
+      setItems(data);
+      setPageError("");
+    } catch {
+      setPageError("Unable to load ingredients.");
+    }
   }, []);
 
   useEffect(() => {
@@ -40,21 +51,25 @@ export function KitchenPage({ role }: { role: UserRole | null }) {
     if (role !== "kitchen") {
       return;
     }
-    const response = await apiFetch(`/ingredients/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
-    if (!response.ok) {
-      const body = (await response.json()) as { error?: string };
-      setErrors((prev) => ({ ...prev, [id]: body.error || "Update failed" }));
-      return;
+    try {
+      const response = await apiFetch(`/ingredients/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) {
+        const message = await readApiError(response, "Update failed");
+        setErrors((prev) => ({ ...prev, [id]: message }));
+        return;
+      }
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      await load();
+    } catch {
+      setErrors((prev) => ({ ...prev, [id]: "Update failed" }));
     }
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-    await load();
   };
 
   const updateLocal = (id: number, patch: Partial<Ingredient>) => {
@@ -75,6 +90,7 @@ export function KitchenPage({ role }: { role: UserRole | null }) {
   return (
     <section className="space-y-2">
       <h1 className="text-xl font-bold">Kitchen</h1>
+      {pageError ? <p className="rounded bg-red-50 p-2 text-sm text-red-700">{pageError}</p> : null}
       {role !== "kitchen" ? <p className="text-sm text-slate-500">Read-only for FOH role.</p> : null}
       {items.map((item) => (
         <div key={item.id} className="rounded border bg-white p-3">

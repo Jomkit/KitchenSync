@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { apiFetch } from "../api/client";
+import { readApiError } from "../api/errors";
 import { parseTokenRole, setToken } from "../auth/token";
 
 const DEMO_USERS = {
@@ -31,29 +32,33 @@ export function LandingPageContent({
   const quickLogin = async (role: keyof typeof DEMO_USERS) => {
     setError("");
     setNotice("");
-    const response = await apiFetch("/auth/login", {
-      method: "POST",
-      body: JSON.stringify(DEMO_USERS[role]),
-    });
+    try {
+      const response = await apiFetch("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(DEMO_USERS[role]),
+      });
 
-    if (!response.ok) {
+      if (!response.ok) {
+        setError(await readApiError(response, "Unable to login demo user"));
+        return;
+      }
+
+      const data = (await response.json()) as { access_token: string };
+      setToken(data.access_token);
+      const tokenRole = parseTokenRole(data.access_token);
+      if (!tokenRole) {
+        setError("Unable to read role from access token");
+        return;
+      }
+
+      if (tokenRole !== role) {
+        setNotice(`Logged in as ${tokenRole.toUpperCase()} and redirected accordingly.`);
+      }
+      const destination = tokenRole === "foh" ? "/online" : `/${tokenRole}`;
+      navigate(destination);
+    } catch {
       setError("Unable to login demo user");
-      return;
     }
-
-    const data = (await response.json()) as { access_token: string };
-    setToken(data.access_token);
-    const tokenRole = parseTokenRole(data.access_token);
-    if (!tokenRole) {
-      setError("Unable to read role from access token");
-      return;
-    }
-
-    if (tokenRole !== role) {
-      setNotice(`Logged in as ${tokenRole.toUpperCase()} and redirected accordingly.`);
-    }
-    const destination = tokenRole === "foh" ? "/online" : `/${tokenRole}`;
-    navigate(destination);
   };
 
   return (

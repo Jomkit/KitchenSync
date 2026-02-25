@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "../api/client";
+import { readApiError } from "../api/errors";
 import type { UserRole } from "../auth/token";
 import { useStateChangedRefetch } from "../realtime/useStateChangedRefetch";
 
@@ -31,11 +32,21 @@ export function FohPage({ role }: { role: UserRole | null }) {
   const [warningThresholdSeconds, setWarningThresholdSeconds] = useState<number>(30);
   const [ttlError, setTtlError] = useState("");
   const [isSavingTtl, setIsSavingTtl] = useState(false);
+  const [menuError, setMenuError] = useState("");
 
   const load = useCallback(async () => {
-    const response = await apiFetch("/menu");
-    const data = (await response.json()) as MenuItem[];
-    setMenu(data);
+    try {
+      const response = await apiFetch("/menu");
+      if (!response.ok) {
+        setMenuError(await readApiError(response, "Unable to load menu."));
+        return;
+      }
+      const data = (await response.json()) as MenuItem[];
+      setMenu(data);
+      setMenuError("");
+    } catch {
+      setMenuError("Unable to load menu.");
+    }
   }, []);
 
   useEffect(() => {
@@ -48,16 +59,20 @@ export function FohPage({ role }: { role: UserRole | null }) {
     if (!isFoh) {
       return;
     }
-    const response = await apiFetch("/admin/reservation-ttl");
-    if (!response.ok) {
+    try {
+      const response = await apiFetch("/admin/reservation-ttl");
+      if (!response.ok) {
+        setTtlError(await readApiError(response, "Unable to load reservation TTL."));
+        return;
+      }
+      const body = (await response.json()) as ReservationTtlPayload;
+      setTtlInfo(body);
+      setTtlMinutes(body.ttl_minutes);
+      setWarningThresholdSeconds(body.warning_threshold_seconds ?? 30);
+      setTtlError("");
+    } catch {
       setTtlError("Unable to load reservation TTL.");
-      return;
     }
-    const body = (await response.json()) as ReservationTtlPayload;
-    setTtlInfo(body);
-    setTtlMinutes(body.ttl_minutes);
-    setWarningThresholdSeconds(body.warning_threshold_seconds ?? 30);
-    setTtlError("");
   }, [isFoh]);
 
   useEffect(() => {
@@ -79,14 +94,15 @@ export function FohPage({ role }: { role: UserRole | null }) {
         }),
       });
       if (!response.ok) {
-        const errorBody = (await response.json()) as { error?: string };
-        setTtlError(errorBody.error || "Unable to update TTL.");
+        setTtlError(await readApiError(response, "Unable to update TTL."));
         return;
       }
       const body = (await response.json()) as ReservationTtlPayload;
       setTtlInfo(body);
       setTtlMinutes(body.ttl_minutes);
       setWarningThresholdSeconds(body.warning_threshold_seconds ?? warningThresholdSeconds);
+    } catch {
+      setTtlError("Unable to update TTL.");
     } finally {
       setIsSavingTtl(false);
     }
@@ -95,6 +111,7 @@ export function FohPage({ role }: { role: UserRole | null }) {
   return (
     <section>
       <h1 className="mb-3 text-xl font-bold">Front of house</h1>
+      {menuError ? <p className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{menuError}</p> : null}
       {isFoh ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded bg-white p-2 shadow-sm">
           <p className="text-sm font-medium">

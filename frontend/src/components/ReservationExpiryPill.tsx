@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiFetch } from "../api/client";
+import { isAuthErrorStatus } from "../api/errors";
+import { clearAuth } from "../auth/token";
 import type { UserRole } from "../auth/token";
 import { useStateChangedRefetch } from "../realtime/useStateChangedRefetch";
 
@@ -33,6 +35,7 @@ export function ReservationExpiryPill({ role }: { role: UserRole | null }): JSX.
   const [hovered, setHovered] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [warningThresholdSeconds, setWarningThresholdSeconds] = useState<number>(DEFAULT_WARNING_THRESHOLD_SECONDS);
+  const [loadError, setLoadError] = useState("");
   const wasWarningRef = useRef(false);
   const elapsedNotifiedReservationIdRef = useRef<string | null>(null);
 
@@ -44,23 +47,37 @@ export function ReservationExpiryPill({ role }: { role: UserRole | null }): JSX.
       return;
     }
 
-    const response = await apiFetch(`/reservations/${reservationId}`);
-    if (response.status === 404) {
-      localStorage.removeItem("activeReservationId");
-      setActiveReservationId(null);
-      setSnapshot(null);
-      return;
-    }
+    try {
+      const response = await apiFetch(`/reservations/${reservationId}`);
+      if (response.status === 404) {
+        localStorage.removeItem("activeReservationId");
+        setActiveReservationId(null);
+        setSnapshot(null);
+        return;
+      }
 
-    if (!response.ok) {
-      return;
-    }
+      if (isAuthErrorStatus(response.status)) {
+        clearAuth();
+        setSnapshot(null);
+        setActiveReservationId(null);
+        setLoadError("Session expired.");
+        return;
+      }
 
-    const body = (await response.json()) as ReservationSnapshot;
-    setSnapshot(body);
-    if (body.status !== "active") {
-      localStorage.removeItem("activeReservationId");
-      setActiveReservationId(null);
+      if (!response.ok) {
+        setLoadError("Unable to refresh reservation status.");
+        return;
+      }
+
+      const body = (await response.json()) as ReservationSnapshot;
+      setSnapshot(body);
+      setLoadError("");
+      if (body.status !== "active") {
+        localStorage.removeItem("activeReservationId");
+        setActiveReservationId(null);
+      }
+    } catch {
+      setLoadError("Unable to refresh reservation status.");
     }
   }, []);
 
@@ -69,13 +86,17 @@ export function ReservationExpiryPill({ role }: { role: UserRole | null }): JSX.
       setWarningThresholdSeconds(DEFAULT_WARNING_THRESHOLD_SECONDS);
       return;
     }
-    const response = await apiFetch("/admin/reservation-ttl");
-    if (!response.ok) {
-      return;
-    }
-    const body = (await response.json()) as { warning_threshold_seconds?: number };
-    if (typeof body.warning_threshold_seconds === "number") {
-      setWarningThresholdSeconds(body.warning_threshold_seconds);
+    try {
+      const response = await apiFetch("/admin/reservation-ttl");
+      if (!response.ok) {
+        return;
+      }
+      const body = (await response.json()) as { warning_threshold_seconds?: number };
+      if (typeof body.warning_threshold_seconds === "number") {
+        setWarningThresholdSeconds(body.warning_threshold_seconds);
+      }
+    } catch {
+      setLoadError("Unable to load timer settings.");
     }
   }, [isOrderingRole]);
 
@@ -206,6 +227,7 @@ export function ReservationExpiryPill({ role }: { role: UserRole | null }): JSX.
             <span className="font-medium">{statusLabel}</span>
             <span className="text-lg font-bold leading-none">{timeLabel}</span>
           </p>
+          {loadError ? <p className="mt-1 text-xs text-red-700">{loadError}</p> : null}
         </div>
       ) : null}
     </div>

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app import socketio
 from app.auth import require_role
 from app.availability import get_active_reserved_qty_by_ingredient, serialize_ingredients
+from app.error_responses import error_response
 from app.models import Ingredient
 from db import SessionLocal
 
@@ -35,28 +36,28 @@ def update_ingredient(ingredient_id: int) -> tuple[dict[str, int | str | bool], 
         on_hand_qty = payload.get("on_hand_qty")
         if not isinstance(on_hand_qty, int) or isinstance(on_hand_qty, bool):
             logger.warning("update_ingredient failed invalid_on_hand_qty ingredient_id=%s", ingredient_id)
-            return jsonify({"error": "on_hand_qty must be an integer"}), 400
+            return error_response("on_hand_qty must be an integer", 400, code="INGREDIENT_INVALID_ON_HAND_QTY")
         if on_hand_qty < 0:
             logger.warning("update_ingredient failed negative_on_hand_qty ingredient_id=%s", ingredient_id)
-            return jsonify({"error": "on_hand_qty must be non-negative"}), 400
+            return error_response("on_hand_qty must be non-negative", 400, code="INGREDIENT_NEGATIVE_ON_HAND_QTY")
         updates["on_hand_qty"] = on_hand_qty
 
     if "is_out" in payload:
         is_out = payload.get("is_out")
         if not isinstance(is_out, bool):
             logger.warning("update_ingredient failed invalid_is_out ingredient_id=%s", ingredient_id)
-            return jsonify({"error": "is_out must be a boolean"}), 400
+            return error_response("is_out must be a boolean", 400, code="INGREDIENT_INVALID_IS_OUT")
         updates["is_out"] = is_out
 
     if not updates:
         logger.warning("update_ingredient failed no_updates ingredient_id=%s", ingredient_id)
-        return jsonify({"error": "Provide on_hand_qty and/or is_out"}), 400
+        return error_response("Provide on_hand_qty and/or is_out", 400, code="INGREDIENT_NO_UPDATES")
 
     with SessionLocal() as session:
         ingredient = session.get(Ingredient, ingredient_id)
         if ingredient is None:
             logger.warning("update_ingredient failed not_found ingredient_id=%s", ingredient_id)
-            return jsonify({"error": "Ingredient not found"}), 404
+            return error_response("Ingredient not found", 404, code="INGREDIENT_NOT_FOUND")
 
         if "on_hand_qty" in updates:
             ingredient.on_hand_qty = updates["on_hand_qty"]

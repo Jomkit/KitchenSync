@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "../api/client";
+import { readApiError } from "../api/errors";
 import { useStateChangedRefetch } from "../realtime/useStateChangedRefetch";
 
 type MenuItem = {
@@ -14,11 +15,21 @@ type MenuItem = {
 
 export function MenuPage() {
   const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const response = await apiFetch("/menu");
-    const data = (await response.json()) as MenuItem[];
-    setMenu(data);
+    try {
+      const response = await apiFetch("/menu");
+      if (!response.ok) {
+        setError(await readApiError(response, "Unable to load menu."));
+        return;
+      }
+      const data = (await response.json()) as MenuItem[];
+      setMenu(data);
+      setError("");
+    } catch {
+      setError("Unable to load menu.");
+    }
   }, []);
 
   useEffect(() => {
@@ -30,6 +41,7 @@ export function MenuPage() {
   return (
     <section>
       <h1 className="mb-3 text-xl font-bold">Menu</h1>
+      {error ? <p className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{error}</p> : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {menu.map((item) => (
           <article key={item.id} className="rounded border bg-white p-3" title={item.reason || ""}>

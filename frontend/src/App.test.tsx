@@ -53,6 +53,16 @@ describe("Phase 10 routing and online behavior", () => {
     expect(await screen.findByText("Order online")).toBeInTheDocument();
   });
 
+  it("renders not found page for unknown route", async () => {
+    render(
+      <MemoryRouter initialEntries={["/definitely-not-real"]}>
+        <AppRoutes />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+  });
+
   it("redirects from landing by role", async () => {
     const roles: Array<["kitchen" | "foh" | "online", string]> = [
       ["kitchen", "Kitchen"],

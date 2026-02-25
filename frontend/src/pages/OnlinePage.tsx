@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { apiFetch } from "../api/client";
+import { isAuthErrorStatus, readApiError } from "../api/errors";
 import type { UserRole } from "../auth/token";
 import { clearAuth } from "../auth/token";
 import {
@@ -99,6 +100,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   const timerRef = useRef<number | null>(null);
   const reservingTimerRef = useRef<number | null>(null);
   const expiryCleanupIntervalRef = useRef<number | null>(null);
+  const sessionRedirectTimerRef = useRef<number | null>(null);
   const expiryCleanupCheckInFlightRef = useRef(false);
   const handledEndedReservationIdRef = useRef<string | null>(null);
   const skipNextReservationSyncRef = useRef(false);
@@ -119,6 +121,24 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     setExpiryCleanupMessage("");
     setCleanupTargetReservationId(null);
   }, []);
+
+  const scheduleSessionReset = useCallback(
+    (message: string) => {
+      setAlert(message);
+      clearActiveReservation();
+      setCart({});
+      setConflicts([]);
+      stopExpiryCleanupFlow();
+      clearAuth();
+      if (sessionRedirectTimerRef.current) {
+        window.clearTimeout(sessionRedirectTimerRef.current);
+      }
+      sessionRedirectTimerRef.current = window.setTimeout(() => {
+        navigate("/");
+      }, 1000);
+    },
+    [clearActiveReservation, navigate, stopExpiryCleanupFlow]
+  );
 
   const handleReservationEnded = useCallback(
     (reason: "expired" | "released" | "missing" | "conflict", reservationId: string | null = activeReservationId) => {
@@ -142,10 +162,22 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   );
 
   const loadMenu = useCallback(async () => {
-    const response = await apiFetch("/menu");
-    const data = (await response.json()) as MenuItem[];
-    setMenu(data);
-  }, []);
+    try {
+      const response = await apiFetch("/menu");
+      if (isAuthErrorStatus(response.status)) {
+        scheduleSessionReset("Your session expired. Redirecting to home...");
+        return;
+      }
+      if (!response.ok) {
+        setAlert(await readApiError(response, "Unable to refresh menu. Retrying..."));
+        return;
+      }
+      const data = (await response.json()) as MenuItem[];
+      setMenu(data);
+    } catch {
+      setAlert("Unable to refresh menu. Retrying...");
+    }
+  }, [scheduleSessionReset]);
 
   useEffect(() => {
     void loadMenu();
@@ -170,34 +202,42 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
 
     let cancelled = false;
     const hydrateFromReservation = async () => {
-      const response = await apiFetch(`/reservations/${activeReservationId}`);
-      if (cancelled) {
-        return;
-      }
-      if (response.status === 404) {
-        handleReservationEnded("missing", activeReservationId);
-        return;
-      }
-      if (!response.ok) {
-        return;
-      }
-
-      const snapshot = (await response.json()) as ReservationSnapshot;
-      if (cancelled) {
-        return;
-      }
-      if (snapshot.status !== "active") {
-        if (snapshot.status === "expired") {
-          handleReservationEnded("expired", activeReservationId);
-          await loadMenu();
+      try {
+        const response = await apiFetch(`/reservations/${activeReservationId}`);
+        if (cancelled) {
           return;
         }
-        handleReservationEnded("released", activeReservationId);
-        return;
-      }
+        if (response.status === 404) {
+          handleReservationEnded("missing", activeReservationId);
+          return;
+        }
+        if (isAuthErrorStatus(response.status)) {
+          scheduleSessionReset("Your session expired. Redirecting to home...");
+          return;
+        }
+        if (!response.ok) {
+          return;
+        }
 
-      skipNextReservationSyncRef.current = true;
-      setCart(buildCartFromReservationItems(snapshot.items));
+        const snapshot = (await response.json()) as ReservationSnapshot;
+        if (cancelled) {
+          return;
+        }
+        if (snapshot.status !== "active") {
+          if (snapshot.status === "expired") {
+            handleReservationEnded("expired", activeReservationId);
+            await loadMenu();
+            return;
+          }
+          handleReservationEnded("released", activeReservationId);
+          return;
+        }
+
+        skipNextReservationSyncRef.current = true;
+        setCart(buildCartFromReservationItems(snapshot.items));
+      } catch {
+        setAlert("Unable to sync reservation. Retrying...");
+      }
     };
 
     void hydrateFromReservation();
@@ -207,16 +247,24 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
   }, [activeReservationId, handleReservationEnded, loadMenu]);
 
   const checkReservationStatus = useCallback(async (reservationId: string): Promise<ReservationStatus | "missing" | "error"> => {
-    const response = await apiFetch(`/reservations/${reservationId}`);
-    if (response.status === 404) {
-      return "missing";
-    }
-    if (!response.ok) {
+    try {
+      const response = await apiFetch(`/reservations/${reservationId}`);
+      if (response.status === 404) {
+        return "missing";
+      }
+      if (isAuthErrorStatus(response.status)) {
+        scheduleSessionReset("Your session expired. Redirecting to home...");
+        return "error";
+      }
+      if (!response.ok) {
+        return "error";
+      }
+      const body = (await response.json()) as ReservationSnapshot;
+      return body.status;
+    } catch {
       return "error";
     }
-    const body = (await response.json()) as ReservationSnapshot;
-    return body.status;
-  }, []);
+  }, [scheduleSessionReset]);
 
   const startTimerElapsedCleanup = useCallback((reservationId: string) => {
     if (!reservationId) {
@@ -388,6 +436,11 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
             body: JSON.stringify({ items }),
           });
 
+          if (isAuthErrorStatus(response.status)) {
+            scheduleSessionReset("Your session expired. Redirecting to home...");
+            return;
+          }
+
           if (response.status === 409) {
             const body = (await response.json()) as { code?: string; errors?: ReservationError[] };
             if (body.code === "INSUFFICIENT_INGREDIENTS" && body.errors) {
@@ -405,6 +458,7 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
           }
 
           if (!response.ok) {
+            setAlert(await readApiError(response, "Unable to save your order. Please try again."));
             return;
           }
 
@@ -415,6 +469,8 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
             handledEndedReservationIdRef.current = null;
             setActiveReservationId(String(body.id));
           }
+        } catch {
+          setAlert("Unable to save your order. Please try again.");
         } finally {
           setIsSyncingReservation(false);
         }
@@ -478,6 +534,9 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
       if (reservingTimerRef.current) {
         window.clearTimeout(reservingTimerRef.current);
       }
+      if (sessionRedirectTimerRef.current) {
+        window.clearTimeout(sessionRedirectTimerRef.current);
+      }
     };
   }, []);
 
@@ -531,13 +590,21 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     if (!activeReservationId) {
       return;
     }
-    const response = await apiFetch(`/reservations/${activeReservationId}/commit`, { method: "POST" });
-    if (response.status === 409) {
-      handleReservationEnded("expired", activeReservationId);
-      await loadMenu();
-      return;
-    }
-    if (response.ok) {
+    try {
+      const response = await apiFetch(`/reservations/${activeReservationId}/commit`, { method: "POST" });
+      if (isAuthErrorStatus(response.status)) {
+        scheduleSessionReset("Your session expired. Redirecting to home...");
+        return;
+      }
+      if (response.status === 409) {
+        handleReservationEnded("expired", activeReservationId);
+        await loadMenu();
+        return;
+      }
+      if (!response.ok) {
+        setAlert(await readApiError(response, "Checkout failed. Please try again."));
+        return;
+      }
       const receipt: OrderReceipt = {
         lines: cartLines,
         subtotal_cents: subtotalCents,
@@ -553,6 +620,8 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
       clearActiveReservation();
       setCart({});
       navigate("/online/confirmed", { state: { receipt } });
+    } catch {
+      setAlert("Checkout failed. Please try again.");
     }
   };
 
@@ -563,10 +632,22 @@ export function OnlinePage({ role }: { role: UserRole | null }) {
     if (isInteractionBlocked) {
       return;
     }
-    await apiFetch(`/reservations/${activeReservationId}/release`, { method: "POST" });
-    handleReservationEnded("released", activeReservationId);
-    clearAuth();
-    navigate("/");
+    try {
+      const response = await apiFetch(`/reservations/${activeReservationId}/release`, { method: "POST" });
+      if (isAuthErrorStatus(response.status)) {
+        scheduleSessionReset("Your session expired. Redirecting to home...");
+        return;
+      }
+      if (!response.ok) {
+        setAlert(await readApiError(response, "Unable to cancel order right now."));
+        return;
+      }
+      handleReservationEnded("released", activeReservationId);
+      clearAuth();
+      navigate("/");
+    } catch {
+      setAlert("Unable to cancel order right now.");
+    }
   };
 
   return (

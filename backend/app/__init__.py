@@ -1,12 +1,15 @@
 import logging
 from pathlib import Path
 from time import perf_counter
+from uuid import uuid4
 
 from flask import Flask, abort, g, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
+from werkzeug.exceptions import HTTPException
 
 from config import settings
+from app.error_responses import error_response
 
 socketio = SocketIO(cors_allowed_origins=settings.cors_allowed_origins)
 logger = logging.getLogger("kitchensync.app")
@@ -25,18 +28,22 @@ def create_app() -> Flask:
     @app.before_request
     def _track_request_start() -> None:
         g.request_started_at = perf_counter()
+        g.request_id = request.headers.get("X-Request-Id") or str(uuid4())
 
     @app.after_request
     def _log_request(response):  # type: ignore[no-untyped-def]
         started_at = getattr(g, "request_started_at", None)
+        request_id = getattr(g, "request_id", "unknown")
         duration_ms = (perf_counter() - started_at) * 1000 if started_at is not None else -1
         logger.info(
-            "request method=%s path=%s status=%s duration_ms=%.2f",
+            "request method=%s path=%s status=%s duration_ms=%.2f request_id=%s",
             request.method,
             request.path,
             response.status_code,
             duration_ms,
+            request_id,
         )
+        response.headers["X-Request-Id"] = request_id
         return response
 
     @app.get("/health")
@@ -54,6 +61,42 @@ def create_app() -> Flask:
     register_blueprints(app)
     app.register_blueprint(auth_bp)
     socketio.init_app(app, async_mode="eventlet")
+
+    def _is_api_request(path: str) -> bool:
+        return path.startswith(
+            (
+                "/auth",
+                "/menu",
+                "/ingredients",
+                "/reservations",
+                "/admin",
+                "/internal",
+                "/health",
+                "/healthz",
+                "/socket.io",
+            )
+        )
+
+    @app.errorhandler(HTTPException)
+    def _handle_http_exception(error: HTTPException):  # type: ignore[no-untyped-def]
+        if _is_api_request(request.path):
+            return error_response(
+                error.description or error.name,
+                error.code or 500,
+                code=(error.name or "HTTP_ERROR").upper().replace(" ", "_"),
+            )
+        return error
+
+    @app.errorhandler(Exception)
+    def _handle_exception(error: Exception):  # type: ignore[no-untyped-def]
+        logger.exception(
+            "unhandled_exception path=%s request_id=%s",
+            request.path,
+            getattr(g, "request_id", "unknown"),
+        )
+        if _is_api_request(request.path):
+            return error_response("Internal server error", 500)
+        return jsonify({"error": "Internal server error"}), 500
 
     api_prefixes = (
         "auth",

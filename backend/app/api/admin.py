@@ -7,6 +7,7 @@ from flask import Blueprint, g, jsonify, request
 
 from app import socketio
 from app.auth import require_any_role, require_role
+from app.error_responses import error_response
 from app.runtime_reservation_ttl import (
     MAX_TTL_SECONDS,
     MIN_TTL_SECONDS,
@@ -61,16 +62,20 @@ def update_reservation_ttl() -> tuple[dict[str, Any], int]:
     ttl_minutes = payload.get("ttl_minutes")
     warning_threshold_seconds = payload.get("warning_threshold_seconds")
     if ttl_minutes is None and warning_threshold_seconds is None:
-        return jsonify({"error": "ttl_minutes or warning_threshold_seconds is required"}), 400
+        return error_response("ttl_minutes or warning_threshold_seconds is required", 400, code="TTL_PAYLOAD_REQUIRED")
     if ttl_minutes is not None and (
         not isinstance(ttl_minutes, int) or isinstance(ttl_minutes, bool)
     ):
-        return jsonify({"error": "ttl_minutes must be an integer"}), 400
+        return error_response("ttl_minutes must be an integer", 400, code="TTL_MINUTES_INVALID")
     if warning_threshold_seconds is not None and (
         not isinstance(warning_threshold_seconds, int)
         or isinstance(warning_threshold_seconds, bool)
     ):
-        return jsonify({"error": "warning_threshold_seconds must be an integer"}), 400
+        return error_response(
+            "warning_threshold_seconds must be an integer",
+            400,
+            code="WARNING_THRESHOLD_INVALID",
+        )
 
     old_ttl = get_runtime_ttl_info().ttl_seconds
     old_warning = get_runtime_warning_info().warning_threshold_seconds
@@ -82,16 +87,13 @@ def update_reservation_ttl() -> tuple[dict[str, Any], int]:
             updated_ttl = set_runtime_ttl_seconds(ttl_seconds)
             updated_ttl_seconds = updated_ttl.ttl_seconds
         except ValueError:
-            return (
-                jsonify(
-                    {
-                        "error": (
-                            f"ttl_minutes must be between "
-                            f"{MIN_TTL_SECONDS // 60} and {MAX_TTL_SECONDS // 60}"
-                        )
-                    }
+            return error_response(
+                (
+                    f"ttl_minutes must be between "
+                    f"{MIN_TTL_SECONDS // 60} and {MAX_TTL_SECONDS // 60}"
                 ),
                 400,
+                code="TTL_MINUTES_OUT_OF_RANGE",
             )
     if warning_threshold_seconds is not None:
         try:
@@ -100,16 +102,13 @@ def update_reservation_ttl() -> tuple[dict[str, Any], int]:
             )
             updated_warning_seconds = updated_warning.warning_threshold_seconds
         except ValueError:
-            return (
-                jsonify(
-                    {
-                        "error": (
-                            f"warning_threshold_seconds must be between "
-                            f"{MIN_WARNING_SECONDS} and {MAX_WARNING_SECONDS}"
-                        )
-                    }
+            return error_response(
+                (
+                    f"warning_threshold_seconds must be between "
+                    f"{MIN_WARNING_SECONDS} and {MAX_WARNING_SECONDS}"
                 ),
                 400,
+                code="WARNING_THRESHOLD_OUT_OF_RANGE",
             )
 
     claims = getattr(g, "jwt_claims", {})

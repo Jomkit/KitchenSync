@@ -4,6 +4,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
+from app.error_responses import error_response
 from app.reservation_expiration import expire_reservations_once_and_emit
 from config import settings
 
@@ -16,7 +17,7 @@ def expire_once() -> tuple[dict[str, int | str], int]:
     provided_secret = request.headers.get("X-Internal-Secret", "")
     if provided_secret != settings.internal_expire_secret:
         logger.warning("expire_once unauthorized")
-        return jsonify({"error": "Unauthorized"}), 401
+        return error_response("Unauthorized", 401, code="INTERNAL_UNAUTHORIZED")
 
     expired_count = expire_reservations_once_and_emit()
     logger.info("expire_once executed expired_count=%s", expired_count)

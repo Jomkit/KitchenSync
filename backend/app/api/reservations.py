@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select
 
 from app import socketio
 from app.auth import require_any_role
+from app.error_responses import error_response
 from app.models import Ingredient, MenuItem, Recipe, Reservation, ReservationIngredient, ReservationItem
 from app.runtime_reservation_ttl import get_runtime_ttl_seconds
 from db import SessionLocal
@@ -49,23 +50,23 @@ def _read_online_user_id() -> int | None:
 
 def _normalize_reservation_items(payload_items: object) -> tuple[list[dict[str, Any]] | None, tuple[dict[str, str], int] | None]:
     if not isinstance(payload_items, list) or not payload_items:
-        return None, ({"error": "items must be a non-empty list"}, 400)
+        return None, ({"error": "items must be a non-empty list", "code": "RESERVATION_ITEMS_REQUIRED"}, 400)
 
     normalized: dict[int, dict[str, Any]] = {}
     for item in payload_items:
         if not isinstance(item, dict):
-            return None, ({"error": "each item must be an object"}, 400)
+            return None, ({"error": "each item must be an object", "code": "RESERVATION_ITEM_INVALID"}, 400)
 
         menu_item_id = item.get("menu_item_id")
         qty = item.get("qty")
         notes = item.get("notes")
 
         if not isinstance(menu_item_id, int) or isinstance(menu_item_id, bool):
-            return None, ({"error": "menu_item_id must be an integer"}, 400)
+            return None, ({"error": "menu_item_id must be an integer", "code": "MENU_ITEM_ID_INVALID"}, 400)
         if not isinstance(qty, int) or isinstance(qty, bool) or qty < 1:
-            return None, ({"error": "qty must be an integer >= 1"}, 400)
+            return None, ({"error": "qty must be an integer >= 1", "code": "RESERVATION_QTY_INVALID"}, 400)
         if notes is not None and not isinstance(notes, str):
-            return None, ({"error": "notes must be a string when provided"}, 400)
+            return None, ({"error": "notes must be a string when provided", "code": "RESERVATION_NOTES_INVALID"}, 400)
 
         existing = normalized.get(menu_item_id)
         if existing is None:
@@ -87,12 +88,12 @@ def create_reservation() -> tuple[dict[str, Any], int]:
     normalized_items, validation_error = _normalize_reservation_items(payload.get("items"))
     if validation_error is not None:
         body, status_code = validation_error
-        return jsonify(body), status_code
+        return error_response(body["error"], status_code, code=body.get("code"))
 
     user_id = _read_online_user_id()
     if user_id is None:
         logger.warning("create_reservation failed invalid_token_subject")
-        return jsonify({"error": "Invalid access token subject"}), 401
+        return error_response("Invalid access token subject", 401, code="AUTH_INVALID_SUBJECT")
     logger.info("create_reservation start user_id=%s item_count=%s", user_id, len(normalized_items))
 
     now = _utc_now()
@@ -115,8 +116,11 @@ def create_reservation() -> tuple[dict[str, Any], int]:
                     missing_menu_item_ids,
                 )
                 return (
-                    jsonify({"error": f"Unknown menu_item_id values: {missing_menu_item_ids}"}),
-                    400,
+                    error_response(
+                        f"Unknown menu_item_id values: {missing_menu_item_ids}",
+                        400,
+                        code="MENU_ITEM_UNKNOWN",
+                    )
                 )
 
             recipes = session.execute(
@@ -179,7 +183,13 @@ def create_reservation() -> tuple[dict[str, Any], int]:
                     len(insufficient_errors),
                 )
                 return (
-                    jsonify({"code": "INSUFFICIENT_INGREDIENTS", "errors": insufficient_errors}),
+                    jsonify(
+                        {
+                            "code": "INSUFFICIENT_INGREDIENTS",
+                            "errors": insufficient_errors,
+                            "request_id": getattr(g, "request_id", "unknown"),
+                        }
+                    ),
                     409,
                 )
 
@@ -238,7 +248,7 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
     normalized_items, validation_error = _normalize_reservation_items(payload.get("items"))
     if validation_error is not None:
         body, status_code = validation_error
-        return jsonify(body), status_code
+        return error_response(body["error"], status_code, code=body.get("code"))
 
     now = _utc_now()
     expires_at = now + timedelta(seconds=get_runtime_ttl_seconds())
@@ -259,7 +269,7 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
             ).scalar_one_or_none()
             if reservation is None:
                 logger.warning("update_reservation failed reservation_not_found reservation_id=%s", reservation_id)
-                return jsonify({"error": "Reservation not found"}), 404
+                return error_response("Reservation not found", 404, code="RESERVATION_NOT_FOUND")
 
             if reservation.status != "active":
                 logger.warning(
@@ -267,13 +277,17 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
                     reservation_id,
                     reservation.status,
                 )
-                return jsonify({"error": f"Reservation is {reservation.status}"}), 409
+                return error_response(
+                    f"Reservation is {reservation.status}",
+                    409,
+                    code="RESERVATION_STATE_CONFLICT",
+                )
 
             if reservation.expires_at <= now:
                 reservation.status = "expired"
                 state_changed = True
                 logger.warning("update_reservation failed reservation_expired reservation_id=%s", reservation_id)
-                return jsonify({"error": "Reservation expired"}), 409
+                return error_response("Reservation expired", 409, code="RESERVATION_EXPIRED")
 
             menu_items = session.execute(
                 select(MenuItem).where(MenuItem.id.in_(menu_item_ids))
@@ -287,8 +301,11 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
                     missing_menu_item_ids,
                 )
                 return (
-                    jsonify({"error": f"Unknown menu_item_id values: {missing_menu_item_ids}"}),
-                    400,
+                    error_response(
+                        f"Unknown menu_item_id values: {missing_menu_item_ids}",
+                        400,
+                        code="MENU_ITEM_UNKNOWN",
+                    )
                 )
 
             recipes = session.execute(
@@ -360,7 +377,13 @@ def update_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
                     len(insufficient_errors),
                 )
                 return (
-                    jsonify({"code": "INSUFFICIENT_INGREDIENTS", "errors": insufficient_errors}),
+                    jsonify(
+                        {
+                            "code": "INSUFFICIENT_INGREDIENTS",
+                            "errors": insufficient_errors,
+                            "request_id": getattr(g, "request_id", "unknown"),
+                        }
+                    ),
                     409,
                 )
 
@@ -432,7 +455,7 @@ def commit_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
             ).scalar_one_or_none()
             if reservation is None:
                 logger.warning("commit_reservation failed reservation_not_found reservation_id=%s", reservation_id)
-                return jsonify({"error": "Reservation not found"}), 404
+                return error_response("Reservation not found", 404, code="RESERVATION_NOT_FOUND")
 
             if reservation.status == "committed":
                 response_body = {"id": reservation.id, "status": reservation.status}
@@ -443,11 +466,19 @@ def commit_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
                     reservation_id,
                     reservation.status,
                 )
-                return jsonify({"error": f"Reservation is {reservation.status}"}), 409
+                return error_response(
+                    f"Reservation is {reservation.status}",
+                    409,
+                    code="RESERVATION_STATE_CONFLICT",
+                )
             elif reservation.expires_at <= now:
                 reservation.status = "expired"
                 response_status_code = 409
-                response_body = {"error": "Reservation expired"}
+                response_body = {
+                    "error": "Reservation expired",
+                    "code": "RESERVATION_EXPIRED",
+                    "request_id": getattr(g, "request_id", "unknown"),
+                }
                 state_changed = True
                 logger.warning("commit_reservation failed reservation_expired reservation_id=%s", reservation_id)
             elif reservation.status != "active":
@@ -456,7 +487,11 @@ def commit_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
                     reservation_id,
                     reservation.status,
                 )
-                return jsonify({"error": f"Reservation is {reservation.status}"}), 409
+                return error_response(
+                    f"Reservation is {reservation.status}",
+                    409,
+                    code="RESERVATION_STATE_CONFLICT",
+                )
             else:
                 reservation_ingredients = session.execute(
                     select(ReservationIngredient)
@@ -512,11 +547,11 @@ def release_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
             ).scalar_one_or_none()
             if reservation is None:
                 logger.warning("release_reservation failed reservation_not_found reservation_id=%s", reservation_id)
-                return jsonify({"error": "Reservation not found"}), 404
+                return error_response("Reservation not found", 404, code="RESERVATION_NOT_FOUND")
 
             if reservation.status == "committed":
                 logger.warning("release_reservation failed reservation_committed reservation_id=%s", reservation_id)
-                return jsonify({"error": "Reservation is committed"}), 409
+                return error_response("Reservation is committed", 409, code="RESERVATION_COMMITTED")
 
             if reservation.status == "released":
                 response_body = {"id": reservation.id, "status": reservation.status}
@@ -536,7 +571,11 @@ def release_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
                     reservation_id,
                     reservation.status,
                 )
-                return jsonify({"error": f"Reservation is {reservation.status}"}), 409
+                return error_response(
+                    f"Reservation is {reservation.status}",
+                    409,
+                    code="RESERVATION_STATE_CONFLICT",
+                )
 
     if state_changed:
         socketio.emit("stateChanged")
@@ -558,7 +597,7 @@ def get_reservation(reservation_id: int) -> tuple[dict[str, Any], int]:
         ).scalars().all()
 
     if reservation is None:
-        return jsonify({"error": "Reservation not found"}), 404
+        return error_response("Reservation not found", 404, code="RESERVATION_NOT_FOUND")
 
     return (
         jsonify(
