@@ -34,13 +34,16 @@ Implemented today:
   - `POST /reservations/:id/commit`
   - `POST /reservations/:id/release`
   - Reservation write endpoints are accessible to `online` and `foh` roles
-- FOH runtime TTL endpoints:
-  - `GET /admin/reservation-ttl`
-  - `PATCH /admin/reservation-ttl` (allowed values: 1-15 minutes)
+- Runtime TTL settings endpoint:
+  - `GET /admin/reservation-ttl` (allowed for `online` and `foh`)
+  - `PATCH /admin/reservation-ttl` (FOH-only; TTL allowed values: 1-15 minutes)
+  - includes runtime warning threshold for TTL pill (`5-120` seconds, default `30`)
 - Global reservation timer UI:
   - Floating `TTL` pill appears for authenticated users when `activeReservationId` exists
   - Hover opens transparent countdown panel
   - Click pins panel open with solid/pressed style
+  - For ordering roles (`online` + `foh`), pill turns red + auto-opens when remaining time is at/below warning threshold
+  - Warning threshold is configurable by FOH (default `30s`, range `5-120s`)
 - Reservation expiration worker (`backend/app/reservation_expiration.py`): runs every 30s, expires active reservations, emits `stateChanged`
 - Internal expiry trigger: `POST /internal/expire_once` with `X-Internal-Secret`
 - Socket events:
@@ -169,6 +172,8 @@ Backend reads these values:
 - `JWT_ACCESS_TOKEN_TTL_MINUTES` default: `60`
 - `RESERVATION_TTL_SECONDS` default: `600`
   - used as startup default; FOH can override runtime TTL via `/admin/reservation-ttl`
+- `RESERVATION_WARNING_THRESHOLD_SECONDS` default: `30`
+  - used as startup default; FOH can override runtime warning threshold via `/admin/reservation-ttl`
 - `EXPIRATION_INTERVAL_SECONDS` default: `30`
 - `ENABLE_INPROCESS_EXPIRATION_JOB` default: `1` in local/dev, `0` in production/staging
 - `INTERNAL_EXPIRE_SECRET` required in production/staging (used by `POST /internal/expire_once`)

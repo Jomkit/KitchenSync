@@ -10,7 +10,7 @@ This document is the implementation-ready plan for deploying KitchenSync as a st
   - `DATABASE_URL` (preferred) or `DB_*` / `TEST_DB_*`
   - `APP_ENV`, `HOST`, `PORT`, `FLASK_DEBUG`, `LOG_LEVEL`
   - `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_ACCESS_TOKEN_TTL_MINUTES`
-  - Added for deployment: `INTERNAL_EXPIRE_SECRET`, `ENABLE_INPROCESS_EXPIRATION_JOB`, `RESERVATION_TTL_SECONDS`, `EXPIRATION_INTERVAL_SECONDS`, `CORS_ALLOWED_ORIGINS`, `FRONTEND_DIST_DIR`
+  - Added for deployment: `INTERNAL_EXPIRE_SECRET`, `ENABLE_INPROCESS_EXPIRATION_JOB`, `RESERVATION_TTL_SECONDS`, `RESERVATION_WARNING_THRESHOLD_SECONDS`, `EXPIRATION_INTERVAL_SECONDS`, `CORS_ALLOWED_ORIGINS`, `FRONTEND_DIST_DIR`
 - DB config model: full SQLAlchemy URL from `DATABASE_URL` preferred, otherwise built from split vars in `backend/config.py`. Expected format is SQLAlchemy URL (example: `postgresql+psycopg2://user:pass@host:5432/dbname`).
 - Socket.IO initialization/serving:
   - Global `socketio = SocketIO(...)` in `backend/app/__init__.py`
@@ -320,9 +320,12 @@ TTL expiry:
 
 FOH runtime TTL + timer UX:
 
-- As FOH, verify `GET /admin/reservation-ttl` and `PATCH /admin/reservation-ttl` work with values 1-15 minutes.
+- As FOH, verify `PATCH /admin/reservation-ttl` works with TTL values 1-15 minutes.
+- As FOH, verify warning threshold can be updated via `PATCH /admin/reservation-ttl` with `warning_threshold_seconds` values 5-120.
+- As FOH and online users, verify `GET /admin/reservation-ttl` returns current runtime TTL and warning threshold.
 - Confirm floating `TTL` pill appears on authenticated pages when an active reservation exists.
 - Confirm hover opens transparent timer panel and click pins it open with solid styling.
+- Confirm ordering-role warning behavior (`online` + `foh`): pill turns red and auto-opens when remaining time is at/below warning threshold.
 
 CI deploy:
 
